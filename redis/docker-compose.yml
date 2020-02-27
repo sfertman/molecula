@@ -1,0 +1,21 @@
+version: "3.7"
+
+services:
+  redis_backend:
+    image: redis:alpine
+    ports:
+      - 6379:6379
+    networks:
+      - molecula_net
+  redis_cmdr:
+    environment:
+      REDIS_HOST: redis_backend
+    image: rediscommander/redis-commander:latest
+    networks:
+      - molecula_net
+    ports:
+      - 8081:8081
+
+networks:
+  molecula_net:
+    name: molecula_net
