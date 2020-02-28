@@ -13,3 +13,6 @@ pom.xml.asc
 .nrepl-port
 .cpcache/
 .lsp/
+.settings/org.eclipse*
+.classpath
+.project
