@@ -1,6 +1,7 @@
 (ns molecula.core
   (:refer-clojure :exclude [dosync])
   (:require
+    [molecula.transaction :as tx]
     [taoensso.carmine :as r]))
 ;; let's figure out the api for this thing...
 (def conn {:pool {} :spec {:uri "redis://localhost:6379"}})
@@ -82,84 +83,11 @@
 ;; another idea is to implement a sort of ref on redis.
 ;; it doesn't necessarily have to implement the full ref interface and and STM on top of redis but I believe it could still keep the ref transaction syntax and perform with the same guarantees while only using optimistic locking (watch/multi/exec)
 
-(def ^:dynamic *t* nil)
-
 (defn watch-when-new
   [this]
   (when (not-watched-todo this)
     (watch-on-redis-todo this)
     (add-to-watch-list-todo)))
-
-(defn current-val
-;; mebbe just deref from redis since no transaction value exists
-  [this]
-  (deref* (:conn (.state this)) (:k (.state this))))
-  ;; not sure if I should throw ref unbound ex here if no key on redis
-
-(defn has-tx-vals? [this]
-  (contains? (:vals *t*) this))
-
-(defn get-tx-val
-  [this]
-  (get (:vals *t*) this))
-
-(defn set-tx-val
-  [this val]
-  (set! *t* (update *t* :vals assoc this val)))
-
-(defn in-tx-commutes?
-  [this]
-  (contains? (:commutes *t*) this))
-
-(defn in-tx-sets?
-  [this]
-  (contains? (:sets *t*) this))
-
-(defn add-to-tx-sets
-  [this]
-  (set! *t* (update *t* :sets conj this)))
-
-
-
-(defn in-tx-ensures?
-  [this]
-  (contains? (:ensures *t*) this))
-
-(defn do-get
-  [this]
-  (if (has-tx-vals? this)
-    (get-tx-val this)
-    (do
-      (r/watch this) ;; first we watch on redis! (TODO: implement this)
-      (let [val (current-val this)] ;; then we get the al from redis
-        (set-tx-val this val) ;; then we set in-tx val of ref
-        val ;; then we return val
-      ))))
-
-(defn -deref
-  [this]
-  (if (nil? *t*)
-    (current-val this)
-    (do-get this)))
-
-
-
-(defn do-set
-  [this val]
-  (when (in-tx-commutes? this)
-    (throw (IllegalStateException. "Can't set after commute")))
-  (when (not (in-tx-sets? this))
-    (add-to-tx-sets this))
-  (set-tx-val this val)
-  val)
-
-(defn -alter-IFn-ISeq
-  [this f args]
-  (do-set this (apply f (do-get this) args))) ;; NOTE: do-get watches on redis
-
-(defn run-in-transaction
-  [f]
-  42)
 
 
 (defn ->transaction
