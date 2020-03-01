@@ -23,6 +23,8 @@
 
 (defn in-vals? [this] (contains? (:vals (get-ex)) this))
 (defn tval [this] (get (:vals (get-ex)) this))
+(defn put-tval [this v]
+  (set *t* (update (get-ex) :vals assoc this v)))
 (defn in-commutes? [this] (contains? (commutes) this))
 
 
@@ -59,7 +61,13 @@
   (if (in-vals? this)
     (tval this)
     (do
-      (r/watch this) ;; first we watch on redis! (TODO: implement this)
+      (r/watch this)
+      ;; ~~first we watch on redis! (TODO: implement this)~~
+      ;; Actually we do not need to watch anything before commit time.
+      ;; The transaction is runnig on local only and once everythign is
+      ;; prepared to be commited to Redis then and only then do we have
+      ;; to watch for changes while performing cas-multi!
+      ;; The above stmt only needs to save dereffed val as tval
       (let [val (current-val this)] ;; then we get the al from redis
         (set-tx-val this val) ;; then we set in-tx val of ref
         val ;; then we return val
@@ -108,9 +116,14 @@
 ; 	return ret;
 ; }
   [this f args]
-  (if-let [fs (get (commutes) this)]
-    42
-    43)
+
+  (when (nil? (get (commutes) this))
+    (set! *t* (update (get-ex) :commutes assoc this [])))
+  (set! *t* (update-in (get-ex) [:commutes this] conj `(~f ~args) ))
+  ;; ^ make a CFn equivalent data structure -- quoted lists can get hairy (or possibly not...). Won;t know for sure before implementing runInTransaction
+  (let [ret (apply f (tval this) args)]
+    (put-tval this ret)
+    ret)
 )
 
 
