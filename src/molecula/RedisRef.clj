@@ -26,15 +26,24 @@
 ; addWatch
 ; removeWatch
 
+
+
 (defn -init
   ([conn k] [[] {:conn conn :k k}])
   ([conn k mta] [[mta] {:conn conn :k k}]))
 
 
+(defn- current-val
+;; mebbe just deref from redis since no transaction value exists
+  [this]
+  (r/deref* (:conn (.state this)) (:k (.state this))))
+  ;; not sure if I should throw ref unbound ex here if no key on redis
+
+
 (defn -deref
   [this]
   (if (nil? (tx/get-ex))
-    (tx/current-val this)
+    (current-val this)
     (tx/do-get this)))
 
 (defn -alter-IFn-ISeq

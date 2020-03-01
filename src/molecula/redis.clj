@@ -1,6 +1,6 @@
 (ns molecula.redis
   (:require [taoensso.carmine :as r]))
-
+(defn watch [& _] (constantly 42)) ;; this does nothingcu
 (defn deref* [conn k] (:data (r/wcar conn (r/get k))))
 
 (defn deref-multi* [conn ks] (map :data (r/wcar conn (apply r/mget ks))))

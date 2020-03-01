@@ -1,32 +1,34 @@
-(ns molecula.transaction)
+(ns molecula.transaction
+  (:require
+    [molecula.redis :as r]))
 
 (def ^:dynamic *t* nil)
 
-(defn- get-ex
+(defn get-ex
   "Returns a transaction object (*t*).
   Used inside a \"running\" transaction.
   If *t* is nil then throws an exception."
   []
-  (if (or (nil? *t*) (nil? (:info *t*)))
+  (if (or (nil? *t*) #_(nil? (:info *t*))) ;; Inot sure why I need info here but will keep the comment in case it does end up this way
     (throw (IllegalStateException. "No transaction running"))
     ; Note: this should never actually happen and if it does then
     ; something went terribly wrong and I should take a long hard
     ; look at my code!
     *t*))
 
-(defn ensures [] (:ensures (get-ex))
+(defn ensures [] (:ensures (get-ex)))
 (defn commutes [] (:commutes (get-ex)))
 (defn sets [] (:sets (get-ex)))
 
 
 (defn in-vals? [this] (contains? (:vals (get-ex)) this))
 (defn tval [this] (get (:vals (get-ex)) this))
-(defn in-commutes?his] (contains? (commutes) this))
+(defn in-commutes? [this] (contains? (commutes) this))
 
 
 (defn set-tx-val
   [this val]
-  (set! *t* (update *t* :vals assoc this val)))
+  (set! *t* (update (get-ex) :vals assoc this val)))
 
 (defn add-to-commutes
   [this val-mabbe?]
@@ -38,7 +40,7 @@
 
 (defn add-to-tx-sets
   [this]
-  (set! *t* (update *t* :sets conj this)))
+  (set! *t* (update (get-ex) :sets conj this)))
 
 
 (defn in-ensures?
@@ -47,16 +49,7 @@
 
 (defn add-to-ensures
   [this]
-  (set! *t* (update *t* :ensures conj this)))
-
-
-
-(defn current-val
-;; mebbe just deref from redis since no transaction value exists
-  [this]
-  (deref* (:conn (.state this)) (:k (.state this))))
-  ;; not sure if I should throw ref unbound ex here if no key on redis
-
+  (set! *t* (update (get-ex) :ensures conj this)))
 
 
 
@@ -74,7 +67,7 @@
 
 (defn do-set
   [this val]
-  (when (tx-commute? this)
+  (when (in-commutes? this)
     (throw (IllegalStateException. "Can't set after commute")))
   (when (not (in-sets? this))
     (add-to-tx-sets this))
@@ -84,7 +77,7 @@
 (defn do-ensure
   [this]
   (when-not (in-ensures? this)
-    (let [val (do-get)] ;; this watches and gets in-tx value
+    (let [val (do-get this)] ;; this watches and gets in-tx value
       (add-to-ensures this)
       val)))
 
@@ -115,7 +108,9 @@
 ; 	return ret;
 ; }
   [this f args]
-  42
+  (if-let [fs (get (commutes) this)]
+    42
+    43)
 )
 
 
