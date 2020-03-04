@@ -1,102 +1,11 @@
 (ns molecula.core
-  (:refer-clojure :exclude [dosync])
+  (:refer-clojure :exclude [dosync]) ;; suppress warning
   (:require
-    [molecula.transaction :as tx]
-    [taoensso.carmine :as r]))
-;; let's figure out the api for this thing...
-(def conn {:pool {} :spec {:uri "redis://localhost:6379"}})
-
-(defn molecula
-  [& atoms]
-  42)
-;; I wonder if I can make molecula work with any atom and not necessarily redis atom...
-;; This way, redis atom use case would be trivial since it implements IAtom2
-; hard to say if it's possible; my desired interface allows in principle to do something like that but there is a practical problem watching clojure atoms because I will prbably hae to implement the entire interface in clojure to be able to make a molecular swap.
-; Which actually night not be that big of a deal but still kind of annoying
-
-(defn deref* [conn k] (:data (r/wcar conn (r/get k))))
-(defn compare-and-set* [conn k oldval newval]
-  ;; I need cas to know which values to watch for changes....
-  (r/wcar conn (r/watch k))
-  (if (not= oldval (deref* conn k))
-    (do (r/wcar conn (r/unwatch))
-        false)
-    (some? (r/wcar conn
-                   (r/multi)
-                   (r/set k {:data newval})
-                   (r/exec)))))
-
-
-(defn mol-cas!
-  [this oldval newval]
-  (validate* (.getValidator this) newval)
-  (let [ret (compare-and-set* (:conn (.state this)) (:k (.state this)) oldval newval)]
-    (when ret
-      (.notifyWatches this oldval newval))
-      ;; ^ if mol ends up implementing IAtom2 then we can potentially attach watches to it
-    ret))
-
-(def ra1 (redis-atom conn :rk1 41))
-(def ra2 (redis-atom conn :rk2 42))
-(def ra3 (redis-atom conn :rk3 43))
-
-(def mol2 (molecula ra1 ra2)) ;; let's start with 2 atoms for now
-
-;; regular atom would work like this
-(swap! ra1 (fn [a x] (+ a x)) 567)
-
-;; but if I want to set ra1 and also watch ra2?
-;; one option is to change swap! interface to something like this
-
-(swap2! mol ra1 f "456" :watch ra2)
-
-
-;; although, I *am* passing all the atoms when creating molecula so in theory this should be enough to:
-(swap! mol2 (fn [a x] (+ a x)) ra1 456)
-;; to also watch ra2 for changes; and for
-(swap! mol2 (fn [a x] (+ a x)) ra2 789)
-;; to also watch ra1 for changes
-
-;; the above will work slightly different than usual because we're not actually going to apply f on ra1; instead we're going to pass @ra1 to f and watch all the atoms in mol2
-
-;; and if I want to change multiple atoms at the same time but still make sure that all other atoms in mol are watched then I will need a new function
-
-(def mol3 (molecula ra1 ra2 ra3))
-
-(defn swap-multi!
-  [this & args]
-  ;; (count args should be divisable by 3)
-  42)
-(swap-multi! mol3 ;; nope! we're going to go with refs transactions syntax
-  f1 ra1 args1
-  f2 ra2 args2)
-
-
-;; deref a molucula?
-@mol2 ; => ?? [@ra1 @ra2 ...] perhaps? nope! deref only the atom you want; it's a RedisAtom
-
-; compare-and-set! ?
-(compare-and-set! mol2 oldval newval) ;; => t/f
-
-
-
-;; another idea is to implement a sort of ref on redis.
-;; it doesn't necessarily have to implement the full ref interface and and STM on top of redis but I believe it could still keep the ref transaction syntax and perform with the same guarantees while only using optimistic locking (watch/multi/exec)
-
-(defn watch-when-new
-  [this]
-  (when (not-watched-todo this)
-    (watch-on-redis-todo this)
-    (add-to-watch-list-todo)))
-
-
-(defn ->transaction
-  []
-  {:vals {} :sets #{} :commutes {} :ensures {}})
+    [molecula.transaction :as tx]))
 
 (defmacro mol-sync
   [flags-ignored-for-now & body]
-  `(binding [~*t* (->transaction)] ;; initialize transaction
+  `(binding [~tx/*t* (tx/->transaction)] ;; initialize transaction
     (run-in-transaction (fn [] ~@body)))) ;; from here we can sort of implement the same as java code
 
 
@@ -109,6 +18,12 @@
   ;; ^^ rewrite docstring for redis
   [& exprs]
   `(mol-sync nil ~@exprs))
+
+(defn redis-ref
+  ([redis-atom] 41) ;; should create a ref using the redis atom blueprint
+  ([conn k] 42)
+  ([conn k val] 43)
+  ([conn k val & {mta :meta v-tor :validator}] 44))
 
 (comment
 

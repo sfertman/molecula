@@ -4,6 +4,8 @@
 
 (def ^:dynamic *t* nil)
 
+(defn ->transaction [] {:tval {} :alter #{} :commute {} :ensure #{}})
+
 (defn get-ex
   "Returns a transaction object (*t*).
   Used inside a \"running\" transaction.
@@ -16,117 +18,81 @@
     ; look at my code!
     *t*))
 
-(defn ensures [] (:ensures (get-ex)))
-(defn commutes [] (:commutes (get-ex)))
-(defn sets [] (:sets (get-ex)))
+(defn tcontains? [op ref] (contains? (get (get-ex) op) ref))
 
+(defn tget
+  ([op] (get (get-ex) op))
+  ([op ref] (get-in (get-ex) [op ref])))
 
-(defn in-vals? [this] (contains? (:vals (get-ex)) this))
-(defn tval [this] (get (:vals (get-ex)) this))
-(defn put-tval [this v]
-  (set *t* (update (get-ex) :vals assoc this v)))
-(defn in-commutes? [this] (contains? (commutes) this))
+(defmulti tput! (fn [op & _] op))
 
+(defmethod tput! :tval
+  [_ ref val]
+  (set! *t* (update (get-ex) :tval assoc ref val)))
+(defmethod tput! :commute
+  [_ ref f args]
+  (when (nil? (tget :commute ref))
+    (set! *t* (update (get-ex) :commutes assoc ref [])))
+  (set! *t* (update-in (get-ex) [:commutes ref] conj `(~f ~args) )))
+(defmethod tput! :ensure
+  [_ ref]
+  (set! *t* (update (get-ex) :ensure conj ref)))
+(defmethod tput! :alter
+  [_ ref]
+  (set! *t* (update (get-ex) :alter conj ref)))
 
-(defn set-tx-val
-  [this val]
-  (set! *t* (update (get-ex) :vals assoc this val)))
-
-(defn add-to-commutes
-  [this val-mabbe?]
-  (set ))
-
-
-(defn in-sets? [this] (contains? (sets) this))
-
-
-(defn add-to-tx-sets
-  [this]
-  (set! *t* (update (get-ex) :sets conj this)))
-
-
-(defn in-ensures?
-  [this]
-  (contains? (ensures) this))
-
-(defn add-to-ensures
-  [this]
-  (set! *t* (update (get-ex) :ensures conj this)))
-
-
-
+(defn redis-value ;; rename this to something more intelligent please
+  [ref]
+  (r/deref* (:conn (.state ref)) (:k (.state ref))))
+;; should we add to watch list automagically on deref
 
 (defn do-get
-  [this]
-  (if (in-vals? this)
-    (tval this)
+  [ref]
+  (if (tcontains? :tval ref)
+    (tget :tval ref)
     (do
-      (r/watch this)
+      ; (r/watch this)
       ;; ~~first we watch on redis! (TODO: implement this)~~
       ;; Actually we do not need to watch anything before commit time.
       ;; The transaction is runnig on local only and once everythign is
       ;; prepared to be commited to Redis then and only then do we have
       ;; to watch for changes while performing cas-multi!
       ;; The above stmt only needs to save dereffed val as tval
-      (let [val (current-val this)] ;; then we get the al from redis
-        (set-tx-val this val) ;; then we set in-tx val of ref
-        val ;; then we return val
+      (let [value (redis-value ref)] ;; then we get the val from redis
+        (tput! :tval ref value) ;; then we set in-tx val of ref
+        value ;; then we return val
       ))))
 
 (defn do-set
-  [this val]
-  (when (in-commutes? this)
+  [ref value]
+  (when (tcontains? :commute ref)
     (throw (IllegalStateException. "Can't set after commute")))
-  (when (not (in-sets? this))
-    (add-to-tx-sets this))
-  (set-tx-val this val)
-  val)
+  (when (not (tcontains? :alter ref))
+    (tput! :alter ref))
+  (tput! :tval ref value)
+  value)
 
 (defn do-ensure
-  [this]
-  (when-not (in-ensures? this)
-    (let [val (do-get this)] ;; this watches and gets in-tx value
-      (add-to-ensures this)
-      val)))
+  [ref]
+  (when-not (tcontains? :ensure ref)
+    (let [value (do-get ref)] ;; this watches and gets in-tx value
+      (tput! :ensure ref)
+      value)))
 
 (defn do-commute
-; Object doCommute(Ref ref, IFn fn, ISeq args) {
-; 	if(!info.running())
-; 		throw retryex;
-; 	if(!vals.containsKey(ref))
-; 		{
-; 		Object val = null;
-; 		try
-; 			{
-; 			ref.lock.readLock().lock();
-; 			val = ref.tvals == null ? null : ref.tvals.val;
-; 			}
-; 		finally
-; 			{
-; 			ref.lock.readLock().unlock();
-; 			}
-; 		vals.put(ref, val);
-; 		}
-; 	ArrayList<CFn> fns = commutes.get(ref);
-; 	if(fns == null)
-; 		commutes.put(ref, fns = new ArrayList<CFn>());
-; 	fns.add(new CFn(fn, args));
-; 	Object ret = fn.applyTo(RT.cons(vals.get(ref), args));
-; 	vals.put(ref, ret);
-; 	return ret;
-; }
-  [this f args]
+  [ref f args]
+  ;; java throws if no tx "running"
+  (when-not (tcontains? :tval ref)
+    (tput! :tval ref (redis-value ref)))
+  (tput! :commute ref f args)
+  (let [ret (apply f (tget :tval ref) args)]
+    (tput! :tval ref ret)
+    ret))
+;; ^ perhaps make a CFn equivalent data structure -- quoted lists can get hairy (or possibly not...). Won't know for sure before implementing runInTransaction
 
-  (when (nil? (get (commutes) this))
-    (set! *t* (update (get-ex) :commutes assoc this [])))
-  (set! *t* (update-in (get-ex) [:commutes this] conj `(~f ~args) ))
-  ;; ^ make a CFn equivalent data structure -- quoted lists can get hairy (or possibly not...). Won;t know for sure before implementing runInTransaction
-  (let [ret (apply f (tval this) args)]
-    (put-tval this ret)
-    ret)
-)
-
-
+(defn run
+  [f]
+  42)
 
 (defn run-in-transaction
   [f]

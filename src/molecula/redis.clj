@@ -7,6 +7,17 @@
 ;; Note: watch out for LazySeq
 ;; don't really need this in a ref transaction -- need only for cas-multi
 
+(defn compare-and-set* [conn k oldval newval]
+  ;; I need cas to know which values to watch for changes....
+  (r/wcar conn (r/watch k))
+  (if (not= oldval (deref* conn k))
+    (do (r/wcar conn (r/unwatch))
+        false)
+    (some? (r/wcar conn
+                   (r/multi)
+                   (r/set k {:data newval})
+                   (r/exec)))))
+
 (defn compare-and-set-multi*
   "Usage:
   ```
