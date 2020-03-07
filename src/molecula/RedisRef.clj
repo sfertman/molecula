@@ -26,6 +26,7 @@
 ; addWatch
 ; removeWatch
 
+(defn -key [this] (:k (.state this)))
 
 (defn- validate*
   "This is a clojure re-implementation of clojure.lang.ARef/validate because
@@ -50,6 +51,7 @@
   [this]
   (r/deref* (:conn (.state this)) (:k (.state this))))
   ;; not sure if I should throw ref unbound ex here if no key on redis
+
 
 
 (defn -deref

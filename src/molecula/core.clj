@@ -3,11 +3,15 @@
   (:require
     [molecula.transaction :as tx]))
 
+; (defmacro mol-sync
+;   [flags-ignored-for-now & body]
+;   `(binding [~tx/*t* (tx/->transaction)] ;; initialize transaction
+;     (tx/run-in-transaction (fn [] ~@body)))) ;; from here we can sort of implement the same as java code
+
 (defmacro mol-sync
   [flags-ignored-for-now & body]
-  `(binding [~tx/*t* (tx/->transaction)] ;; initialize transaction
-    (run-in-transaction (fn [] ~@body)))) ;; from here we can sort of implement the same as java code
-
+  `(tx/run-in-transaction (fn [] ~@body)))
+;; possibly init t inside run-in-tx
 
 (defmacro dosync
   "Runs the exprs (in an implicit do) in a transaction that encompasses
@@ -45,10 +49,14 @@
   {:name name
    :socks #{}})
 
+(def conn {:pool {} :host "redis://localhost:6379"})
 
-(def sock-gnome (ref (generate-sock-gnome "Barumpharumph")))
-(def dryer (ref {:name "LG 1337"
-                 :socks (set (map #(sock-count % 2) sock-varieties))}))
+(def redis-ref* (partial redis-ref conn))
+(def sock-gnome (redis-ref* :gnome
+                            (generate-sock-gnome "Barumpharumph")))
+(def dryer (redis-ref* :dryer
+                       {:name "LG 1337"
+                        :socks (set (map #(sock-count % 2) sock-varieties))}))
 
 ;; deref example
 (:socks @dryer)
