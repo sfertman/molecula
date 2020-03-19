@@ -39,17 +39,16 @@
       (when v-tor (.setValidator r v-tor))
       r)))
 
-hello
-(def conn {:pool {} :spec {:uri "redis://localhost:6379"}})
-(defmacro wcar* [& body] `(r/wcar conn ~@body))
+; (def conn {:pool {} :spec {:uri "redis://localhost:6379"}})
+; (defmacro wcar* [& body] `(r/wcar conn ~@body))
 
-(let [t (wcar* (r/time))]
+; (let [t (wcar* (r/time))]
 
-  (wcar* (r/set :a t)))
+;   (wcar* (r/set :a t)))
 
-(wcar*
-  (wcar* (r/time)
-    (wcar* (r/get :a)
-      (wcar* (r/set :a "1231242334")))))
+; (wcar*
+;   (wcar* (r/time)
+;     (wcar* (r/get :a)
+;       (wcar* (r/set :a "1231242334")))))
 
-)
+; )

@@ -6,41 +6,32 @@
     (clojure.lang IFn ISeq Keyword))
   (:gen-class
     :name RedisRef
-    :extends clojure.lang.ARef ;; this actually needs to extend clojure.lang.Ref to work "with one line of code"
+    :extends clojure.lang.Ref ;; this actually needs to extend clojure.lang.Ref to work "with one line of code"
     :implements [
       clojure.lang.IFn
       java.lang.Comparable ;;-- perhaps I can do without? unclear, perhaps will need to make a method for this
       ; clojure.lang.IRef
     ]
     :methods [ ;; this is needed because we're implementing new methods that are not part of the abstract class or interfaces.
-      [key [] clojure.lang.Keyword]
-      [alter
-        [clojure.lang.IFn clojure.lang.ISeq]
-        Object]
-      [commute
-        [clojure.lang.IFn clojure.lang.ISeq]
-        Object]
-        ;; gotta put all NEW class methods here
-        ]
+      [key [] clojure.lang.Keyword]]
     :state state
     :init init
     :constructors {
-      [java.lang.Object] []
-      [clojure.lang.PersistentArrayMap clojure.lang.Keyword] []
-      [clojure.lang.PersistentArrayMap clojure.lang.Keyword clojure.lang.IPersistentMap] [clojure.lang.IPersistentMap]
+      [clojure.lang.PersistentArrayMap clojure.lang.Keyword] [Object]
+      [clojure.lang.PersistentArrayMap clojure.lang.Keyword Object] [Object]
+      [clojure.lang.PersistentArrayMap clojure.lang.Keyword Object clojure.lang.IPersistentMap] [Object clojure.lang.IPersistentMap]
     }))
 
-;; is not implemented in java class
-; (defn -setValidator
-;   [this vf]
-;   42)
-; (defn -getValidator
-;   [this] 42)
-; getWatches
-; addWatch
-; removeWatch
+(defn -init
+  ([conn k]
+    [[nil] {:conn conn :k (keyword k)}])
+  ([conn k iv]
+    [[iv] {:conn conn :k (keyword k)}])
+  ([conn k iv  meta]
+    [[iv meta] {:conn conn :k (keyword k)}]))
 
 (defn -key [this] (:k (.state this)))
+(defn -conn [this] (:conn (.state this)))
 
 (defn- validate*
   "This is a clojure re-implementation of clojure.lang.ARef/validate because
@@ -55,22 +46,16 @@
       (throw (IllegalStateException. "Invalid reference state" e)))))
 
 
-(defn -init
-  ([conn k] [[] {:conn conn :k (keyword k)}])
-  ([conn k mta] [[mta] {:conn conn :k (keyword k)}]))
-
-
-(defn- current-val
-;; mebbe just deref from redis since no transaction value exists
-  [this]
-  (r/deref* (:conn (.state this)) (:k (.state this))))
-  ;; not sure if I should throw ref unbound ex here if no key on redis
-
-
+; (defn- current-val
+; ;; mebbe just deref from redis since no transaction value exists
+;   [this]
+;   (r/deref* (:conn (.state this)) (:k (.state this))))
+;   ;; not sure if I should throw ref unbound ex here if no key on redis
 
 (defn -deref
   [this]
-  (if (nil? tx/*t*)
+  (tx/do-get this)
+  #_(if (nil? tx/*t*)
     (current-val this)
     (tx/do-get this)))
 
@@ -86,22 +71,27 @@
 
 (defn -touch [this] (tx/do-ensure this))
 
-;;; IFn stuff goes here
-(defn -fn [this] (cast clojure.lang.IFn (.deref this)))
-(defn -call [this] (.invoke this))
-(defn -run [this] (.invoke this) nil)
-(defn -invoke
-  [this]
-  (.invoke (.fn this)))
-(defn -invoke-Object
-  [this arg1]
-  (.invoke (.fn this) arg1))
-(defn -invoke-Object-Object
-  [this arg1 arg2]
-  (.invoke (.fn this) arg1 arg2))
-(defn -invoke-Object-Object-Object
-  [this arg1 arg2 arg3]
-  (.invoke (.fn this) arg1 arg2 arg3))
-(defn -applyTo
-  [this ^clojure.lang.ISeq arglist]
-  (.applyToHelper this arglist))
+; (defn -trimHistory [this] (throw (NoSuchMethodException. "Not implemented")))
+; (defn -getHistoryCount [this] (throw (NoSuchMethodException. "Not implemented")))
+
+(comment
+  ;;; IFn stuff goes here -- don't actually need this if I'm extending clojure.lang.Ref
+  (defn -fn [this] (cast clojure.lang.IFn (.deref this)))
+  (defn -call [this] (.invoke this))
+  (defn -run [this] (.invoke this) nil)
+  (defn -invoke
+    [this]
+    (.invoke (.fn this)))
+  (defn -invoke-Object
+    [this arg1]
+    (.invoke (.fn this) arg1))
+  (defn -invoke-Object-Object
+    [this arg1 arg2]
+    (.invoke (.fn this) arg1 arg2))
+  (defn -invoke-Object-Object-Object
+    [this arg1 arg2 arg3]
+    (.invoke (.fn this) arg1 arg2 arg3))
+  (defn -applyTo
+    [this ^clojure.lang.ISeq arglist]
+    (.applyToHelper this arglist))
+)

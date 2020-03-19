@@ -3,8 +3,6 @@
     [clojure.test :refer :all]
     [molecula.transaction :as tx]))
 
-(deftest create
-  )
 
 (deftest do-get)
 (deftest do-set)

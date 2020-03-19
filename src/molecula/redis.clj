@@ -27,7 +27,7 @@
 (defn time* [conn]
 ;; doesn't seem like I actually have a need to do this with refs
   (let [t (r/wcar conn (r/time))]
-    (+ (* Long/parseLong (first  t) 1.0)
+    (+ (* (Long/parseLong (first  t)) 1.0)
        (/ (Long/parseLong (second t)) 1E+6))))
 
 ;; cas with timestamp
