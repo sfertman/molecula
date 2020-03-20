@@ -1,7 +1,6 @@
 (ns molecula.core
   (:refer-clojure :exclude [dosync]) ;; suppress warning
   (:require
-    [taoensso.carmine :as r]
     [molecula.RedisRef]
     [molecula.redis :refer [setnx*]]
     [molecula.transaction :as tx]))
@@ -22,21 +21,21 @@
 
 (defn redis-ref
   ([redis-atom]
-    (redis-ref
-      (:conn (.state redis-atom))
-      (:k (.state redis-atom))
-      @redis-atom
-      ;; get meta
-      ;; get validator
-      ))
-      ;; should create a ref using the redis atom blueprint
-      ;; this could be an actual RedisRef constructor
+    (let [rr (redis-ref
+               (:conn (.state redis-atom))
+               (:k (.state redis-atom))
+               @redis-atom
+               :meta (meta redis-atom)
+               :validator (.getValidator redis-atom))]
+      (doseq [w (.getWatches redis-atom)]
+        (add-watch rr (key w) (val w)))
+      rr))
   ([conn k] (RedisRef. conn k))
   ([conn k val] (let [r (redis-ref conn k)] (setnx* conn k val) r))
-  ([conn k val & {mta :meta v-tor :validator}]
+  ([conn k val & {:keys [meta validator]}]
     (let [r (redis-ref conn k val)]
-      (when mta (.resetMeta r mta))
-      (when v-tor (.setValidator r v-tor))
+      (when meta (.resetMeta r meta))
+      (when validator (.setValidator r validator))
       r)))
 
 ; (def conn {:pool {} :spec {:uri "redis://localhost:6379"}})

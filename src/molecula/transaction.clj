@@ -1,8 +1,10 @@
 (ns molecula.transaction
   (:require
-    [molecula.redis :as r])
+    [molecula.redis :as r]
+    [molecula.util :as u])
   (:import
-    (clojure.lang IFn ISeq)))
+    (clojure.lang IFn ISeq)
+    (clojure.lang.Util runtimeException)))
 
 (def ^:dynamic *t* nil)
 
@@ -23,7 +25,7 @@
 
 (defn- throw-when-nil-t
   []
-  (when (or (nil? *t*) #_(nil? (:info *t*))) ;; Inot sure why I need info here but will keep the comment in case it does end up this way
+  (when (or (nil? *t*) #_(nil? (:info *t*))) ;; I'm not sure why I need info here but will keep the comment in case it does end up this way
     (throw (IllegalStateException. "No transaction running"))))
     ; Note: this should never actually happen and if it does then
     ; something went terribly wrong and I should take a long hard
@@ -42,17 +44,21 @@
 (defmethod tput* :oldvals
   [_ ref val]
   (set! *t* (update *t* :oldvals assoc (.key ref) val)))
+
 (defmethod tput* :tvals
   [_ ref val]
   (set! *t* (update *t* :tvals assoc (.key ref) val)))
+
 (defmethod tput* :commutes
   [_ ref f args]
   (when (nil? (tget :commutes ref))
     (set! *t* (update *t* :commutes assoc (.key ref) [])))
   (set! *t* (update-in *t* [:commutes (.key ref)] conj (->cfn f args))))
+
 (defmethod tput* :ensures
   [_ ref]
   (set! *t* (update *t* :ensures conj (.key ref))))
+
 (defmethod tput* :sets
   [_ ref]
   (set! *t* (update *t* :sets conj (.key ref))))
@@ -66,10 +72,10 @@
   [ref]
   (if (tcontains? :tvals ref)
     (tget :tvals ref)
-    (let [ref-val (r/deref* (.conn ref) (.key ref))]
-      (tput! :oldvals ref ref-val)
-      (tput! :tvals ref ref-val)
-      ref-val)))
+    (let [redis-val (u/deref* ref)]
+      (tput! :oldvals ref redis-val)
+      (tput! :tvals ref redis-val)
+      redis-val)))
 
 (defn do-set
   [ref value]
@@ -98,6 +104,10 @@
 (defn run ;; TODO this next
   [^clojure.lang.IFn f]
   ;; loop [retry limit < some-max limit and mebbe timers too]
+  (loop [retries 0]
+    (when (< 100 retries) ;; <- some retry limit
+      (throw (runtimeException. "Transaction failed after reaching retry limit"))
+    ))
   (let [ret (f)]
         ;; ^^ THROWS: clojure.lang.Var$Unbound cannot be cast to java.util.concurrent.Future
     (prn "ret" ret)

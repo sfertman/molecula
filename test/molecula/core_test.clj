@@ -82,9 +82,7 @@
   (defn steal-sock
     [gnome dryer]
     (mol/dosync conn
-      (prn "hello")
       (when-let [pair (some #(if (= (:count %) 2) %) (:socks @dryer))]
-        (prn "hello again")
         (let [updated-count (sock-count (:variety pair) 1)]
           (alter gnome update-in [:socks] conj updated-count)
           (alter dryer update-in [:socks] disj pair)
@@ -92,7 +90,8 @@
 
   (steal-sock sock-gnome dryer)
 
-  (:socks @sock-gnome)
+  (prn "SHOW ME YOUR SOCKS!!!!")
+  (prn (:socks @sock-gnome))
 
 
   ; (comment

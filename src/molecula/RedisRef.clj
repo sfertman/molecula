@@ -1,7 +1,7 @@
 (ns molecula.RedisRef
   (:require
-    [molecula.redis :as r]
-    [molecula.transaction :as tx])
+    [molecula.transaction :as tx]
+    [molecula.util :as u])
   (:import
     (clojure.lang IFn ISeq Keyword))
   (:gen-class
@@ -13,7 +13,8 @@
       ; clojure.lang.IRef
     ]
     :methods [ ;; this is needed because we're implementing new methods that are not part of the abstract class or interfaces.
-      [key [] clojure.lang.Keyword]]
+      [key [] clojure.lang.Keyword]
+      [conn [] clojure.lang.PersistentArrayMap]]
     :state state
     :init init
     :constructors {
@@ -25,17 +26,17 @@
 (defn -init
   ([conn k]
     [[nil] {:conn conn :k (keyword k)}])
-  ([conn k iv]
-    [[iv] {:conn conn :k (keyword k)}])
-  ([conn k iv  meta]
-    [[iv meta] {:conn conn :k (keyword k)}]))
+  ([conn k initVal]
+    [[initVal] {:conn conn :k (keyword k)}])
+  ([conn k initVal meta]
+    [[initVal meta] {:conn conn :k (keyword k)}]))
 
 (defn -key [this] (:k (.state this)))
 (defn -conn [this] (:conn (.state this)))
 
 (defn- validate*
   "This is a clojure re-implementation of clojure.lang.ARef/validate because
-  cannot be accessed by subclasses Needed to invoke when changing atom state"
+  cannot be accessed by subclasses Needed to invoke when changing ref state"
   [^clojure.lang.IFn vf val]
   (try
     (if (and (some? vf) (not (vf val)))
@@ -46,17 +47,12 @@
       (throw (IllegalStateException. "Invalid reference state" e)))))
 
 
-; (defn- current-val
-; ;; mebbe just deref from redis since no transaction value exists
-;   [this]
-;   (r/deref* (:conn (.state this)) (:k (.state this))))
-;   ;; not sure if I should throw ref unbound ex here if no key on redis
+;; TODO? not sure if I should throw ref unbound ex here if no key on redis
 
 (defn -deref
   [this]
-  (tx/do-get this)
-  #_(if (nil? tx/*t*)
-    (current-val this)
+  (if (nil? tx/*t*)
+    (u/deref* this)
     (tx/do-get this)))
 
 (defn -set [this val] (tx/do-set this val))
@@ -67,7 +63,8 @@
 
 (defn -alter
   [this f args]
-  (tx/do-set this (apply f (tx/do-get this) args))) ;; NOTE: do-get watches on redis
+  (tx/do-set this (apply f (tx/do-get this) args)))
+  ;; NOTE: ^ do-get watches on redis
 
 (defn -touch [this] (tx/do-ensure this))
 
