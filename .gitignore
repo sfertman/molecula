@@ -16,3 +16,4 @@ pom.xml.asc
 .settings/org.eclipse*
 .classpath
 .project
+.vscode/
