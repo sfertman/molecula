@@ -33,7 +33,7 @@
 ;; cas with timestamp
 (defn cas [conn k oldval newval]
 ;; doesn't seem like I actually have a need to do this with refs
-  (let [t (time*)]
+  (let [t (time* conn)]
     (r/wcar conn (r/watch k))
     (if (not= oldval (deref* conn k))
       (do (r/wcar conn (r/unwatch))
@@ -79,6 +79,11 @@
 (defn cas-multi-or-report
   "this is basically our cas-multi but with a twist
   it reports which keys failed compare to oldval
+  Returns:
+    - true when everything went fine
+    - false if soemthing went wrong in watch/multi/exec
+    - an array of ref keys that failed compare to oldvals
+    // TODO: ^^ maybe make the api a bit friendlier?
   Usage:
   ```
   (cas-multi-or-report

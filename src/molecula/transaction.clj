@@ -4,13 +4,15 @@
     [molecula.util :as u])
   (:import
     (clojure.lang IFn ISeq)
-    (clojure.lang.Util runtimeException)))
+    #_(clojure.lang.Util runtimeException)))
 
 (def ^:dynamic *t* nil)
 
-(defrecord CFn [f args])
-(defn ->cfn [^clojure.lang.IFn f ^clojure.lang.ISeq args] (->CFn f args))
+(defrecord CFn [f args]
+  IFn
+    (invoke [this oldval] (apply (:f this) oldval (:args this))))
 
+; (defn ->cfn [^clojure.lang.IFn f ^clojure.lang.ISeq args] (->CFn f args))
 
 ;; hmm... most times we need to update more than one key in *t*; could I use a bunch of actual clojure refs for this?
 ;; Could be pretty fun but not sure if necessary because everything is going to be happening on a single thread
@@ -50,10 +52,10 @@
   (set! *t* (update *t* :tvals assoc (.key ref) val)))
 
 (defmethod tput* :commutes
-  [_ ref f args]
+  [_ ref cfn]
   (when (nil? (tget :commutes ref))
     (set! *t* (update *t* :commutes assoc (.key ref) [])))
-  (set! *t* (update-in *t* [:commutes (.key ref)] conj (->cfn f args))))
+  (set! *t* (update-in *t* [:commutes (.key ref)] conj cfn)))
 
 (defmethod tput* :ensures
   [_ ref]
@@ -96,18 +98,107 @@
 
 (defn do-commute
   [ref f args]
-  (let [ret (apply f (do-get ref) args)]
+  (let [cfn (->CFn f args)
+        ret (cfn (do-get ref))]
     (tput! :tvals ref ret)
-    (tput! :commutes ref f args)
+    (tput! :commutes ref cfn)
     ret))
+
+(defn- commute-ref
+  "Applies all ref's commutes starting with ref's oldval"
+  [ref]
+  (let [cfns (apply comp (tget :commutes ref))]
+    (cfns (tget :oldvals ref))))
+
+(defn- validate*
+  "This is a clojure re-implementation of clojure.lang.ARef/validate because it cannot be accessed by subclasses. It is needed to invoke when changing ref state"
+  [^clojure.lang.IFn vf val]
+  (try
+    (if (and (some? vf) (not (vf val)))
+      (throw (IllegalStateException. "Invalid reference state")))
+    (catch RuntimeException re
+      (throw re))
+    (catch Exception e
+      (throw (IllegalStateException. "Invalid reference state" e)))))
+
+(defn- validate-all
+  [refs]
+  (doseq [ref refs] (validate* (.getValidator ref) (tget :tvals ref))))
+
+(defn- validate-tvals ;; instead of "validate-all"
+  []
+  (let [tvals (tget :tvals)]
+    (doseq [{:keys [ref tval]} (keys tvals)]
+      (validate* (.getValidator ref) tval))))
+
+(defn- commit
+  "Returns:
+  - nil if everything went ok
+  - an error \"object\" if anything went wrong
+    -
+
+
+  "
+  [refs] ;; doesn't actually need refs input becasue anything we touch ends up somewhere in *t*
+  (let [ensures 42
+        updates 43
+        result (r/cas-multi-or-report (:conn *t*)
+                                      ensures
+                                      updates)]
+    (cond
+      (true? result) 42
+      (false? result) 43
+      (sequential? result)
+        54 ;; figure out what needs to be done when commit fails like that
+
+      )
+    ))
+
+(defn- notify-watches-all
+  [refs]
+  (doseq [ref refs] (.notifyWatches ref (tget :oldvals ref) (tget :tvals ref))))
 
 (defn run ;; TODO this next
   [^clojure.lang.IFn f]
   ;; loop [retry limit < some-max limit and mebbe timers too]
   (loop [retries 0]
     (when (< 100 retries) ;; <- some retry limit
-      (throw (runtimeException. "Transaction failed after reaching retry limit"))
-    ))
+      (throw (RuntimeException. "Transaction failed after reaching retry limit")))
+              ;; ^^ should be clojure.lang.Util. runtimeException; havong some trouble importing it
+    (let [ret (f) refs [] ]
+      ;; handle commutes
+      ;; handle sets
+      ;; collect all refs that need to be updated on backend
+
+      (validate-all refs)
+      ;; commit
+      #_(let [ensures 42
+            updates 43
+            result (r/cas-multi-or-report (:conn *t*) ensures updates)]
+        (cond
+          (true? result) ret
+          (false? result) (recur (dec retries))
+            ;; ^^ can I actually figure out what exactly went wrong here?
+            ;; if only commutes got out of sync, I could try again cheaply
+          (sequential? result)
+            54 ;; figure out what needs to be done when commit fails like that
+
+          )
+        )
+      (if (commit refs)
+        (do
+          (notify-watches-all refs)
+        ;; dispatch agents
+        )
+        ;; figure out if we can get away with updating commute only
+        ;; there's going to be an inner loop here that will add to retry count above. Possible "inner" loop should include "(if cas..."
+        ;; Also must make sure to clean up *t* before recurring to top level because f will be called again
+      )
+
+    )
+
+
+      )
   (let [ret (f)]
         ;; ^^ THROWS: clojure.lang.Var$Unbound cannot be cast to java.util.concurrent.Future
     (prn "ret" ret)
