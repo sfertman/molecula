@@ -44,7 +44,6 @@
 (defn- oldval [ref] (tget :oldvals ref))
 (defn- tval [ref] (tget :tvals ref))
 
-
 (defmulti tput* (fn [op & _] op))
 
 (defmethod tput* :oldvals
@@ -132,29 +131,25 @@
 (defn- validate
   "Validates all updatables given the latest tval"
   []
-  (let [refs (updatables)]
-    (doseq [{:keys [ref tval]} (keys (filter (fn [[k _]] (refs k)) (tget :tvals)))]
-      (validate* (.getValidator ref) tval))))
+  (doseq [ref (updatables)]
+    (validate* (.getValidator ref) (tval ref))))
 
 (defn- commit
   "Returns:
   - nil if everything went ok
   - an error \"object\" if anything went wrong
-    -
-
-
-  "
-  [refs] ;; doesn't actually need refs input becasue anything we touch ends up somewhere in *t*
-  (let [ensures 42
-        updates 43
-        result (r/cas-multi-or-report (:conn *t*)
-                                      ensures
-                                      updates)]
+    -"
+  []
+  (let [ensures (apply concat (map (fn [ref] [(.key ref) (oldval ref)]) (tget :ensures)))
+        updates (apply concat (map (fn [ref] [(.key ref) (oldval ref) (tval ref)]]) (updatables)))
+        result (r/cas-multi-or-report (:conn *t*) ensures updates)]
     (cond
       (true? result) 42
       (false? result) 43
       (sequential? result)
-        54 ;; figure out what needs to be done when commit fails like that
+        (do
+
+          54) ;; figure out what needs to be done when commit fails like that
 
       )
     ))
@@ -162,8 +157,8 @@
 (defn- notify-watches
   "Validates all updatables given the latest oldval and latest tval"
   []
-  (let [refs (updatables)]
-    (doseq [ref refs] (.notifyWatches ref (oldval ref) (tval ref)))))
+  (doseq [ref (updatables)]
+    (.notifyWatches ref (oldval ref) (tval ref))))
 
 (defn- dispatch-agents [] 42) ;; TODO: this at some point?
 
