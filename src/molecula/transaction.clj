@@ -35,35 +35,39 @@
 
 (defn get-ex [] (throw-when-nil-t) *t*)
 
-(defn tcontains? [op ref] (contains? (get (get-ex) op) (.key ref)))
+(defn tcontains? [op ref] (contains? (get (get-ex) op) ref))
 
 (defn tget
   ([op] (get (get-ex) op))
-  ([op ref] (get-in (get-ex) [op (.key ref)])))
+  ([op ref] (get-in (get-ex) [op ref]))) ;; <- I hope I don't have to implement comparable for this...
+
+(defn- oldval [ref] (tget :oldvals ref))
+(defn- tval [ref] (tget :tvals ref))
+
 
 (defmulti tput* (fn [op & _] op))
 
 (defmethod tput* :oldvals
   [_ ref val]
-  (set! *t* (update *t* :oldvals assoc (.key ref) val)))
+  (set! *t* (update *t* :oldvals assoc ref val)))
 
 (defmethod tput* :tvals
   [_ ref val]
-  (set! *t* (update *t* :tvals assoc (.key ref) val)))
+  (set! *t* (update *t* :tvals assoc ref val)))
 
 (defmethod tput* :commutes
   [_ ref cfn]
   (when (nil? (tget :commutes ref))
-    (set! *t* (update *t* :commutes assoc (.key ref) [])))
-  (set! *t* (update-in *t* [:commutes (.key ref)] conj cfn)))
+    (set! *t* (update *t* :commutes assoc ref [])))
+  (set! *t* (update-in *t* [:commutes ref] conj cfn)))
 
 (defmethod tput* :ensures
   [_ ref]
-  (set! *t* (update *t* :ensures conj (.key ref))))
+  (set! *t* (update *t* :ensures conj ref)))
 
 (defmethod tput* :sets
   [_ ref]
-  (set! *t* (update *t* :sets conj (.key ref))))
+  (set! *t* (update *t* :sets conj ref)))
 
 (defn tput!
   [& args]
@@ -73,7 +77,7 @@
 (defn do-get
   [ref]
   (if (tcontains? :tvals ref)
-    (tget :tvals ref)
+    (tval ref)
     (let [redis-val (u/deref* ref)]
       (tput! :oldvals ref redis-val)
       (tput! :tvals ref redis-val)
@@ -108,7 +112,7 @@
   "Applies all ref's commutes starting with ref's oldval"
   [ref]
   (let [cfns (apply comp (tget :commutes ref))]
-    (cfns (tget :oldvals ref))))
+    (cfns  (oldval ref))))
 
 (defn- validate*
   "This is a clojure re-implementation of clojure.lang.ARef/validate because it cannot be accessed by subclasses. It is needed to invoke when changing ref state"
@@ -121,14 +125,15 @@
     (catch Exception e
       (throw (IllegalStateException. "Invalid reference state" e)))))
 
-(defn- validate-all
-  [refs]
-  (doseq [ref refs] (validate* (.getValidator ref) (tget :tvals ref))))
+(defn- updatables
+  "Returns a set of refs that have been altered or commuted"
+  [] (apply conj (tget :sets) (keys (tget :commutes))))
 
-(defn- validate-tvals ;; instead of "validate-all"
+(defn- validate
+  "Validates all updatables given the latest tval"
   []
-  (let [tvals (tget :tvals)]
-    (doseq [{:keys [ref tval]} (keys tvals)]
+  (let [refs (updatables)]
+    (doseq [{:keys [ref tval]} (keys (filter (fn [[k _]] (refs k)) (tget :tvals)))]
       (validate* (.getValidator ref) tval))))
 
 (defn- commit
@@ -154,9 +159,13 @@
       )
     ))
 
-(defn- notify-watches-all
-  [refs]
-  (doseq [ref refs] (.notifyWatches ref (tget :oldvals ref) (tget :tvals ref))))
+(defn- notify-watches
+  "Validates all updatables given the latest oldval and latest tval"
+  []
+  (let [refs (updatables)]
+    (doseq [ref refs] (.notifyWatches ref (oldval ref) (tval ref)))))
+
+(defn- dispatch-agents [] 42) ;; TODO: this at some point?
 
 (defn run ;; TODO this next
   [^clojure.lang.IFn f]
@@ -170,7 +179,7 @@
       ;; handle sets
       ;; collect all refs that need to be updated on backend
 
-      (validate-all refs)
+      (validate)
       ;; commit
       #_(let [ensures 42
             updates 43
@@ -187,7 +196,8 @@
         )
       (if (commit refs)
         (do
-          (notify-watches-all refs)
+          ; (notify-watches-all refs)
+          (notify-watches)
         ;; dispatch agents
         )
         ;; figure out if we can get away with updating commute only
