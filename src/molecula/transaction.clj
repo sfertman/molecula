@@ -143,12 +143,14 @@
   (let [ensures (apply concat (map (fn [ref] [(.key ref) (oldval ref)]) (tget :ensures)))
         updates (apply concat (map (fn [ref] [(.key ref) (oldval ref) (tval ref)]]) (updatables)))
         result (r/cas-multi-or-report (:conn *t*) ensures updates)]
+    (when-not (true? result)
+      ;; here I need to figure out if everything that failed can be commuted
+    )
     (cond
-      (true? result) 42
-      (false? result) 43
+      (true? result) nil
+      (false? result) {:error "failed during redis apply"}
       (sequential? result)
         (do
-
           54) ;; figure out what needs to be done when commit fails like that
 
       )

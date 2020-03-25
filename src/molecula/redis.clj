@@ -1,5 +1,7 @@
 (ns molecula.redis
-  (:require [taoensso.carmine :as r]))
+  (:require
+    [molecula.util :as u]
+    [taoensso.carmine :as r]))
 
 (defn watch [conn k]
   (r/wcar conn (r/watch k)))
@@ -74,7 +76,25 @@
                   (r/set k {:data newval}))
                 (r/exec))))))
 
+(defn compare-fails
+  "Returns a list of keys that failed compare to oldvals"
+  [conn ks oldvals]
+  (->> (deref-multi* conn ks)
+       (u/zipseq ks oldvals)
+       (filter (fn [[_ ov nv]] (not= ov nv)))
+       (map first)))
+  ; (map
+  ;   first
+  ;   (filter
+  ;     (fn [[_ oldval newval]] (not= oldval newval))
+  ;     (u/zipseq
+  ;       ks
+  ;       oldvals
+  ;       (deref-multi* conn ks))))
 
+(defmacro multi-exec
+  [conn & forms]
+  `(r/wcar ~conn (r/multi) ~@forms (r/exec)))
 
 (defn cas-multi-or-report
   "this is basically our cas-multi but with a twist
@@ -108,14 +128,10 @@
         ks (concat eks uks) ;; all keys to watch while comparing
         ovs (concat eov uov)] ;; all oldvals to compare
     (r/wcar conn (apply r/watch ks))
-    (let [compare-fails (map not= (deref-multi* conn ks) ovs)]
-      (if (seq compare-fails)
+    (let [cf (compare-fails conn ks ovs)]
+      (if (seq cf)
         (do (r/wcar conn (r/unwatch))
-            compare-fails)
-        (some?
-          (r/wcar conn
-                  (r/multi)
-                  (doseq [k uks
-                          nv unv]
-                    (r/set k {:data nv}))
-                  (r/exec)))))))
+            cf)
+        (if (nil? (multi-exec (doseq [k uks nv unv] (r/set k {:data nv}))))
+          (compare-fails conn ks ovs) ;; return what changed while trying multi-exec
+          true)))))
