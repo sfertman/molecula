@@ -18,6 +18,7 @@
 ;; Could be pretty fun but not sure if necessary because everything is going to be happening on a single thread
 (defn ->transaction [conn] {
   :conn conn
+  :refs {}
   :oldvals {}
   :tvals {}
   :sets #{}
@@ -46,6 +47,10 @@
 
 (defmulti tput* (fn [op & _] op))
 
+(defmethod tput* :refs
+  [_ ref]
+  (set! *t* (update *t* :refs assoc (.key ref) ref)))
+
 (defmethod tput* :oldvals
   [_ ref val]
   (set! *t* (update *t* :oldvals assoc ref val)))
@@ -69,9 +74,11 @@
   (set! *t* (update *t* :sets conj ref)))
 
 (defn tput!
-  [& args]
+  [op ref & args]
   (throw-when-nil-t)
-  (apply tput* args))
+  (when-not (tcontains? :refs (.key ref))
+    (tput* :refs ref))
+  (apply tput* op ref args))
 
 (defn do-get
   [ref]
@@ -143,7 +150,7 @@
   ;; it is possible that it's better to do everything in (run) for simplicity
   ;; problem is that it's going to be a mega function and I kind of want to avoid that
   (if (<= retries 0)
-    {:error :no-more-mistakes
+    {:error :no-more-retries
      :retries retries}
     (let [ensures (apply concat (map (fn [ref] [(.key ref) (oldval ref)]) (tget :ensures)))
           updates (apply concat (map (fn [ref] [(.key ref) (oldval ref) (tval ref)]) (updatables)))
@@ -151,7 +158,7 @@
       (when-not (true? result)
         (let [refs (map (fn [rk] (tget :commutes (tget :refs rk))) result)]
           (if (some nil? refs)
-            {:error :retry-from-scratch
+            {:error :stale-oldvals
              :retries retries}  ;; should be retried in outer loop
             (do
               (doseq [ref refs]
@@ -166,63 +173,29 @@
 
 (defn- dispatch-agents [] 42) ;; TODO: this at some point?
 
+(defn ex-retry-limit [] ;; this is a function because I need a NEW exception at the point of failure
+  (RuntimeException. "Transaction failed after reaching retry limit"))
+;; ^^ should be clojure.lang.Util. runtimeException; having some trouble importing it
+
 (defn run ;; TODO this next
   [^clojure.lang.IFn f]
   ;; loop [retry limit < some-max limit and mebbe timers too]
   (loop [retries 100]
     (when (<= retries 0)
-      (throw (RuntimeException. "Transaction failed after reaching retry limit")))
-              ;; ^^ should be clojure.lang.Util. runtimeException; havong some trouble importing it
-    (let [ret (f) refs [] ]
-      ;; handle commutes
-      ;; handle sets
-      ;; collect all refs that need to be updated on backend
+      (throw (ex-retry-limit)))
 
+    (let [ret (f)] ;;  add a try catch arpund this thing
       (validate)
-      ;; commit
-      #_(let [ensures 42
-            updates 43
-            result (r/cas-multi-or-report (:conn *t*) ensures updates)]
+      (let [result (commit retries)]
+        (if (nil? result)
+          (do
+            (notify-watches)
+            ret)
         (cond
-          (true? result) ret
-          (false? result) (recur (dec retries))
-            ;; ^^ can I actually figure out what exactly went wrong here?
-            ;; if only commutes got out of sync, I could try again cheaply
-          (sequential? result)
-            54 ;; figure out what needs to be done when commit fails like that
-
-          )
-        )
-      (if (commit 10)
-        (do
-          ; (notify-watches-all refs)
-          (notify-watches)
-        ;; dispatch agents
-        )
-        ;; figure out if we can get away with updating commute only
-        ;; there's going to be an inner loop here that will add to retry count above. Possible "inner" loop should include "(if cas..."
-        ;; Also must make sure to clean up *t* before recurring to top level because f will be called again
-      )
-
-    )
-
-
-      )
-  (let [ret (f)]
-        ;; ^^ THROWS: clojure.lang.Var$Unbound cannot be cast to java.util.concurrent.Future
-    (prn "ret" ret)
-    ;; retry exceptions are "eaten" so we can just make a loop with stopping condition here instead and not implement it (it just extends Error)
-    (r/cas-multi-or-report
-      (:conn *t*)
-      (tget :ensures)
-      (tget :sets))
-
-      ;; ^ something like this will be file for
-      ;; alters and ensures but commutes ned other type of handling
-    ret
-  )
-
-  )
+          (= :no-more-retries (:error result))
+            (throw (ex-retry-limit))
+          (= :stale-oldvals (:error result))
+            (recur (dec retries))))))))
 
 (defn run-in-transaction
   [conn ^clojure.lang.IFn f]
