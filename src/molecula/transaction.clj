@@ -137,24 +137,26 @@
 (defn- commit
   "Returns:
   - nil if everything went ok
-  - an error \"object\" if anything went wrong
-    -"
-  []
-  (let [ensures (apply concat (map (fn [ref] [(.key ref) (oldval ref)]) (tget :ensures)))
-        updates (apply concat (map (fn [ref] [(.key ref) (oldval ref) (tval ref)]]) (updatables)))
-        result (r/cas-multi-or-report (:conn *t*) ensures updates)]
-    (when-not (true? result)
-      ;; here I need to figure out if everything that failed can be commuted
-    )
-    (cond
-      (true? result) nil
-      (false? result) {:error "failed during redis apply"}
-      (sequential? result)
-        (do
-          54) ;; figure out what needs to be done when commit fails like that
-
-      )
-    ))
+  - an error \"object\" if anything went wrong"
+  [retries]
+  ;; needs to syncronize number of retries with outter loop
+  ;; it is possible that it's better to do everything in (run) for simplicity
+  ;; problem is that it's going to be a mega function and I kind of want to avoid that
+  (if (<= retries 0)
+    {:error :no-more-mistakes
+     :retries retries}
+    (let [ensures (apply concat (map (fn [ref] [(.key ref) (oldval ref)]) (tget :ensures)))
+          updates (apply concat (map (fn [ref] [(.key ref) (oldval ref) (tval ref)]) (updatables)))
+          result (r/cas-multi-or-report (:conn *t*) ensures updates)]
+      (when-not (true? result)
+        (let [refs (map (fn [rk] (tget :commutes (tget :refs rk))) result)]
+          (if (some nil? refs)
+            {:error :retry-from-scratch
+             :retries retries}  ;; should be retried in outer loop
+            (do
+              (doseq [ref refs]
+                (commute-ref ref))
+              (recur (dec retries))))))))) ;; should be retried in here
 
 (defn- notify-watches
   "Validates all updatables given the latest oldval and latest tval"
@@ -167,8 +169,8 @@
 (defn run ;; TODO this next
   [^clojure.lang.IFn f]
   ;; loop [retry limit < some-max limit and mebbe timers too]
-  (loop [retries 0]
-    (when (< 100 retries) ;; <- some retry limit
+  (loop [retries 100]
+    (when (<= retries 0)
       (throw (RuntimeException. "Transaction failed after reaching retry limit")))
               ;; ^^ should be clojure.lang.Util. runtimeException; havong some trouble importing it
     (let [ret (f) refs [] ]
@@ -191,7 +193,7 @@
 
           )
         )
-      (if (commit refs)
+      (if (commit 10)
         (do
           ; (notify-watches-all refs)
           (notify-watches)
