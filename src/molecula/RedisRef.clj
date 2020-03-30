@@ -1,7 +1,7 @@
 (ns molecula.RedisRef
   (:require
     [molecula.transaction :as tx]
-    [molecula.util :as u])
+    [molecula.redis :as r])
   (:import
     (clojure.lang IFn ISeq Keyword))
   (:gen-class
@@ -52,7 +52,7 @@
 (defn -deref
   [this]
   (if (nil? tx/*t*)
-    (u/deref* this)
+    (r/deref* (.conn this) (.key this))
     (tx/do-get this)))
 
 (defn -set [this val] (tx/do-set this val))

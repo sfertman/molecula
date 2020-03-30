@@ -1,7 +1,6 @@
 (ns molecula.transaction
   (:require
-    [molecula.redis :as r]
-    [molecula.util :as u])
+    [molecula.redis :as r])
   (:import
     (clojure.lang IFn ISeq)
     #_(clojure.lang.Util runtimeException)))
@@ -80,11 +79,14 @@
     (tput* :refs ref))
   (apply tput* op ref args))
 
+(defn deref* [ref] (r/deref* (.conn ref) (.key ref)))
+;; this should probably be in molecula.redis
+
 (defn do-get
   [ref]
   (if (tcontains? :tvals ref)
     (tval ref)
-    (let [redis-val (u/deref* ref)]
+    (let [redis-val (deref* ref)]
       (tput! :oldvals ref redis-val)
       (tput! :tvals ref redis-val)
       redis-val)))

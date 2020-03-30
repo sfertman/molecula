@@ -62,22 +62,11 @@
   (def redis-ref* (partial redis-ref conn))
   (def sock-gnome (redis-ref* :gnome
                               (generate-sock-gnome "Barumpharumph")))
+  (prn sock-gnome sock-gnome)
   (def dryer (redis-ref* :dryer
                         {:name "LG 1337"
                           :socks (set (map #(sock-count % 2) sock-varieties))}))
-
-  #_(defn alter
-    "Must be called in a transaction. Sets the in-transaction-value of
-    ref to:
-
-    (apply fun in-transaction-value-of-ref args)
-
-    and returns the in-transaction-value of ref."
-    {:added "1.0"
-    :static true}
-    [^clojure.lang.IRef ref fun & args]
-    (. ref (alter fun args)))
-
+  (prn "dryer" dryer)
   ;; try to make this work on redis (possibly with RedisAtom)
   (defn steal-sock
     [gnome dryer]
@@ -88,6 +77,7 @@
           (alter dryer update-in [:socks] disj pair)
           (alter dryer update-in [:socks] conj updated-count)))))
 
+  (prn "starting test")
   (steal-sock sock-gnome dryer)
 
   (prn "SHOW ME YOUR SOCKS!!!!")

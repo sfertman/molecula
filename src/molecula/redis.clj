@@ -3,18 +3,18 @@
     [molecula.util :as u]
     [taoensso.carmine :as r]))
 
-(defn watch [conn k]
+#_(defn watch [conn k]
   (r/wcar conn (r/watch k)))
 
 (defn deref* [conn k] (:data (r/wcar conn (r/get k))))
 
 (defn setnx* [conn k newval] (r/wcar conn (r/setnx k {:data newval})))
 
-(defn deref-multi* [conn ks] (map :data (r/wcar conn (apply r/mget ks))))
+(defn deref-multi* [conn ks] (r/wcar conn (map :data (apply r/mget ks))))
 ;; Note: watch out for LazySeq
 ;; don't really need this in a ref transaction -- need only for cas-multi
 
-(defn compare-and-set* [conn k oldval newval]
+#_(defn compare-and-set* [conn k oldval newval]
   ;; I need cas to know which values to watch for changes....
   (r/wcar conn (r/watch k))
   (if (not= oldval (deref* conn k))
@@ -26,14 +26,14 @@
                    (r/exec)))))
 
 
-(defn time* [conn]
+#_(defn time* [conn]
 ;; doesn't seem like I actually have a need to do this with refs
   (let [t (r/wcar conn (r/time))]
     (+ (* (Long/parseLong (first  t)) 1.0)
        (/ (Long/parseLong (second t)) 1E+6))))
 
 ;; cas with timestamp
-(defn cas [conn k oldval newval]
+#_(defn cas [conn k oldval newval]
 ;; doesn't seem like I actually have a need to do this with refs
   (let [t (time* conn)]
     (r/wcar conn (r/watch k))
@@ -47,7 +47,7 @@
 
 
 
-(defn compare-and-set-multi*
+#_(defn compare-and-set-multi*
 ;; doesn't seem like I actually have a need to do this with refs
 
   "Usage:

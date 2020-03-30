@@ -1,9 +1,4 @@
-(ns molecula.util
-  (:require
-    [molecula.redis :as r]))
-
-(defn deref* [ref] (r/deref* (.conn ref) (.key ref)))
-;; this should probably be in molecula.redis
+(ns molecula.util)
 
 (defn zipseq
   "Returns a lazy sequence of partitions of interleaved colls.
