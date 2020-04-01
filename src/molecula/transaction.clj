@@ -35,92 +35,105 @@
 
 (defn get-ex [] (throw-when-nil-t) *t*)
 
-(defn tcontains? [op ref] (contains? (get (get-ex) op) ref))
+(defn tcontains? [op rk] (contains? (get (get-ex) op) rk))
 
-(defn tget
-  ([op] (get (get-ex) op))
-  ([op ref] (get-in (get-ex) [op ref]))) ;; <- I hope I don't have to implement comparable for this...
+(defn tget*
+  ([t op] (get t op))
+  ([t op rk] (get-in t [op rk])))
 
-(defn- oldval [ref] (tget :oldvals ref))
-(defn- tval [ref] (tget :tvals ref))
+(defn tget [& args]
+  (throw-when-nil-t)
+  (apply tget* *t* args))
+
+(defn- get-ref [rk] (get-in (get-ex) [:refs rk]))
+; (defn- put-ref [ref]
+;   (throw-when-nil-t)
+;   (when-not (tcontains? :refs (.key ref))
+;     (set! *t* (update *t* :refs assoc (.key ref) ref))))
+
+(defn- oldval [rk] (tget :oldvals rk))
+(defn- tval [rk] (tget :tvals rk))
 
 (defmulti tput* (fn [op & _] op))
 
 (defmethod tput* :refs
-  [_ ref]
-  (set! *t* (update *t* :refs assoc (.key ref) ref)))
+  ([_ ref] (tput* :refs (.key ref) ref))
+  ([_ rk ref] (set! *t* (update *t* :refs assoc rk ref))))
 
 (defmethod tput* :oldvals
-  [_ ref val]
-  (set! *t* (update *t* :oldvals assoc ref val)))
+  [_ rk val]
+  (set! *t* (update *t* :oldvals assoc rk val)))
 
 (defmethod tput* :tvals
-  [_ ref val]
-  (set! *t* (update *t* :tvals assoc ref val)))
+  [_ rk val]
+  (set! *t* (update *t* :tvals assoc rk val)))
 
 (defmethod tput* :commutes
-  [_ ref cfn]
-  (when (nil? (tget :commutes ref))
-    (set! *t* (update *t* :commutes assoc ref [])))
-  (set! *t* (update-in *t* [:commutes ref] conj cfn)))
+  [_ rk cfn]
+  (when (nil? (tget :commutes rk))
+    (set! *t* (update *t* :commutes assoc rk [])))
+  (set! *t* (update-in *t* [:commutes rk] conj cfn)))
 
 (defmethod tput* :ensures
-  [_ ref]
-  (set! *t* (update *t* :ensures conj ref)))
+  [_ rk]
+  (set! *t* (update *t* :ensures conj rk)))
 
 (defmethod tput* :sets
-  [_ ref]
-  (set! *t* (update *t* :sets conj ref)))
+  [_ rk]
+  (set! *t* (update *t* :sets conj rk)))
 
 (defn tput!
-  [op ref & args]
+  [op rk & args]
   (throw-when-nil-t)
-  (when-not (tcontains? :refs (.key ref))
-    (tput* :refs ref))
-  (apply tput* op ref args))
+  (apply tput* op rk args))
 
-(defn deref* [ref] (r/deref* (.conn ref) (.key ref)))
+(defn deref* [rk] (r/deref* (:conn *t*) rk ))
 ;; this should probably be in molecula.redis
 
 (defn do-get
   [ref]
-  (if (tcontains? :tvals ref)
-    (tval ref)
-    (let [redis-val (deref* ref)]
-      (tput! :oldvals ref redis-val)
-      (tput! :tvals ref redis-val)
-      redis-val)))
+  (let [rk (.key ref)]
+    (if (tcontains? :tvals rk)
+      (tval ref)
+      (let [redis-val (deref* rk)]
+        (tput! :refs ref)
+        (tput! :oldvals rk redis-val)
+        (tput! :tvals rk redis-val)
+        redis-val))))
 
 (defn do-set
   [ref value]
-  (when (tcontains? :commutes ref)
-    (throw (IllegalStateException. "Can't set after commute")))
-  (when-not (tcontains? :sets ref)
-    (tput! :sets ref))
-  (do-get ref) ;; adds ref to oldval if not already there
-  (tput! :tvals ref value) ;; put new val in tvals
-  value)
+  (let [rk (.key ref)]
+    (when (tcontains? :commutes rk)
+      (throw (IllegalStateException. "Can't set after commute")))
+    (when-not (tcontains? :sets rk)
+      (tput! :sets rk))
+    (do-get ref) ;; adds ref to oldval if not already there
+    (tput! :tvals rk value) ;; put new val in tvals
+    value))
 
 (defn do-ensure
   [ref]
-  (when-not (tcontains? :ensures ref)
-    (let [value (do-get ref)]
-      (tput! :ensures ref)
-      value)))
+  (let [rk (.key ref)]
+    (when-not (tcontains? :ensures rk)
+      (let [value (do-get ref)]
+        (tput! :ensures rk)
+        value))))
 
 (defn do-commute
   [ref f args]
-  (let [cfn (->CFn f args)
+  (let [rk (.key ref)
+        cfn (->CFn f args)
         ret (cfn (do-get ref))]
-    (tput! :tvals ref ret)
-    (tput! :commutes ref cfn)
+    (tput! :tvals rk ret)
+    (tput! :commutes rk cfn)
     ret))
 
 (defn- commute-ref
   "Applies all ref's commutes starting with ref's oldval"
-  [ref]
-  (let [cfns (apply comp (tget :commutes ref))]
-    (cfns  (oldval ref))))
+  [rk]
+  (let [cfns (apply comp (tget :commutes rk))]
+    (cfns (oldval rk))))
 
 (defn- validate*
   "This is a clojure re-implementation of clojure.lang.ARef/validate because it cannot be accessed by subclasses. It is needed to invoke when changing ref state"
@@ -140,8 +153,9 @@
 (defn- validate
   "Validates all updatables given the latest tval"
   []
-  (doseq [ref (updatables)]
-    (validate* (.getValidator ref) (tval ref))))
+  (doseq [rk (updatables)]
+    (let [ref (get-ref rk)]
+      (validate* (.getValidator ref) (tval ref)))))
 
 (defn- commit
   "Returns:
@@ -154,24 +168,28 @@
   (if (<= retries 0)
     {:error :no-more-retries
      :retries retries}
-    (let [ensures (apply concat (map (fn [ref] [(.key ref) (oldval ref)]) (tget :ensures)))
-          updates (apply concat (map (fn [ref] [(.key ref) (oldval ref) (tval ref)]) (updatables)))
+    (let [ensures (apply concat (map (fn [rk] [rk (oldval rk)]) (tget :ensures)))
+          updates (apply concat (map (fn [rk] [rk (oldval rk) (tval rk)]) (updatables)))
           result (r/cas-multi-or-report (:conn *t*) ensures updates)]
       (when-not (true? result)
-        (let [refs (map (fn [rk] (tget :commutes (tget :refs rk))) result)]
-          (if (some nil? refs)
+        (prn "result")
+        (clojure.pprint/pprint result)
+        (let [rks (map (fn [rk] (tget :commutes rk)) result)]
+          (prn "stale?")
+          (clojure.pprint/pprint rks)
+          (if (some nil? rks)
             {:error :stale-oldvals
              :retries retries}  ;; should be retried in outer loop
             (do
-              (doseq [ref refs]
-                (commute-ref ref))
+              (doseq [rk rks]
+                (commute-ref rk))
               (recur (dec retries))))))))) ;; should be retried in here
 
 (defn- notify-watches
   "Validates all updatables given the latest oldval and latest tval"
   []
-  (doseq [ref (updatables)]
-    (.notifyWatches ref (oldval ref) (tval ref))))
+  (doseq [rk (updatables)]
+    (.notifyWatches rk (oldval rk) (tval rk))))
 
 (defn- dispatch-agents [] 42) ;; TODO: this at some point?
 
@@ -185,10 +203,19 @@
   (loop [retries 100]
     (when (<= retries 0)
       (throw (ex-retry-limit)))
-
     (let [ret (f)] ;;  add a try catch arpund this thing
+      (prn "ran in transaction; retries = " retries )
+      (prn "return val is:")
+      (clojure.pprint/pprint ret)
+      (prn "transaction is:")
+      (clojure.pprint/pprint *t*)
+
       (validate)
+      ; (prn "validated")
       (let [result (commit retries)]
+        ; (prn "commited")
+        ; (prn "return val is:")
+        ; (clojure.pprint/pprint result)
         (if (nil? result)
           (do
             (notify-watches)
