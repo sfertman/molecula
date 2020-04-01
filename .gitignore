@@ -17,3 +17,4 @@ pom.xml.asc
 .classpath
 .project
 .vscode/
+.rebel_readline_history
