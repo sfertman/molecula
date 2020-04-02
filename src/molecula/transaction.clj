@@ -45,12 +45,6 @@
   (throw-when-nil-t)
   (apply tget* *t* args))
 
-(defn- get-ref [rk] (get-in (get-ex) [:refs rk]))
-; (defn- put-ref [ref]
-;   (throw-when-nil-t)
-;   (when-not (tcontains? :refs (.key ref))
-;     (set! *t* (update *t* :refs assoc (.key ref) ref))))
-
 (defn- oldval [rk] (tget :oldvals rk))
 (defn- tval [rk] (tget :tvals rk))
 
@@ -154,7 +148,7 @@
   "Validates all updatables given the latest tval"
   []
   (doseq [rk (updatables)]
-    (let [ref (get-ref rk)]
+    (let [ref (tget :refs rk)]
       (validate* (.getValidator ref) (tval ref)))))
 
 (defn- commit
@@ -172,11 +166,7 @@
           updates (apply concat (map (fn [rk] [rk (oldval rk) (tval rk)]) (updatables)))
           result (r/cas-multi-or-report (:conn *t*) ensures updates)]
       (when-not (true? result)
-        (prn "result")
-        (clojure.pprint/pprint result)
         (let [rks (map (fn [rk] (tget :commutes rk)) result)]
-          (prn "stale?")
-          (clojure.pprint/pprint rks)
           (if (some nil? rks)
             {:error :stale-oldvals
              :retries retries}  ;; should be retried in outer loop
@@ -189,7 +179,7 @@
   "Validates all updatables given the latest oldval and latest tval"
   []
   (doseq [rk (updatables)]
-    (.notifyWatches rk (oldval rk) (tval rk))))
+    (.notifyWatches (tget :refs rk) (oldval rk) (tval rk))))
 
 (defn- dispatch-agents [] 42) ;; TODO: this at some point?
 
@@ -204,18 +194,8 @@
     (when (<= retries 0)
       (throw (ex-retry-limit)))
     (let [ret (f)] ;;  add a try catch arpund this thing
-      (prn "ran in transaction; retries = " retries )
-      (prn "return val is:")
-      (clojure.pprint/pprint ret)
-      (prn "transaction is:")
-      (clojure.pprint/pprint *t*)
-
       (validate)
-      ; (prn "validated")
       (let [result (commit retries)]
-        ; (prn "commited")
-        ; (prn "return val is:")
-        ; (clojure.pprint/pprint result)
         (if (nil? result)
           (do
             (notify-watches)

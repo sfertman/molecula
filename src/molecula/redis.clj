@@ -10,9 +10,8 @@
 
 (defn setnx* [conn k newval] (r/wcar conn (r/setnx k {:data newval})))
 
-(defn deref-multi* [conn ks] (r/wcar conn (map :data (apply r/mget ks))))
+(defn deref-multi [conn ks] (map :data (r/wcar conn (apply r/mget ks))))
 ;; Note: watch out for LazySeq
-;; don't really need this in a ref transaction -- need only for cas-multi
 
 #_(defn compare-and-set* [conn k oldval newval]
   ;; I need cas to know which values to watch for changes....
@@ -64,7 +63,7 @@
         oldvals (take-nth 3 (drop 1 args))
         newvals (take-nth 3 (drop 2 args))]
     (r/wcar conn (apply r/watch (into #{} (concat ks-to-watch ks-to-set))))
-    (if (some true? (map not= (deref-multi* conn ks-to-set) oldvals))
+    (if (some true? (map not= (deref-multi conn ks-to-set) oldvals))
       ;; ^^ if any of the keys to set don't match oldvals
       (do (r/wcar conn (r/unwatch))
           false)
@@ -76,25 +75,19 @@
                   (r/set k {:data newval}))
                 (r/exec))))))
 
-(defn compare-fails
+(defn conflicts
+  ;; ^ there might be a more efficient way to write this fn
   "Returns a list of keys that failed compare to oldvals"
   [conn ks oldvals]
-  (->> (deref-multi* conn ks)
+  (->> (deref-multi conn ks)
        (u/zipseq ks oldvals)
        (filter (fn [[_ ov nv]] (not= ov nv)))
        (map first)))
-  ; (map
-  ;   first
-  ;   (filter
-  ;     (fn [[_ oldval newval]] (not= oldval newval))
-  ;     (u/zipseq
-  ;       ks
-  ;       oldvals
-  ;       (deref-multi* conn ks))))
 
 (defmacro multi-exec
   [conn & forms]
   `(r/wcar ~conn (r/multi) ~@forms (r/exec)))
+
 
 (defn cas-multi-or-report
   "this is basically our cas-multi but with a twist
@@ -128,10 +121,10 @@
         ks (concat eks uks) ;; all keys to watch while comparing
         ovs (concat eov uov)] ;; all oldvals to compare
     (r/wcar conn (apply r/watch ks))
-    (let [cf (compare-fails conn ks ovs)]
+    (let [cf (conflicts conn ks ovs)]
       (if (seq cf)
         (do (r/wcar conn (r/unwatch))
             cf)
-        (if (nil? (multi-exec (doseq [k uks nv unv] (r/set k {:data nv}))))
-          (compare-fails conn ks ovs) ;; return what changed while trying multi-exec
+        (if (nil? (multi-exec conn (doseq [k uks nv unv] (r/set k {:data nv}))))
+          (conflicts conn ks ovs) ;; return what changed while trying multi-exec
           true)))))
