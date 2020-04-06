@@ -51,7 +51,7 @@
 
 (defn -deref
   [this]
-  (if (nil? tx/*t*)
+  (if-not (tx/running?)
     (r/deref* (.conn this) (.key this))
     (tx/do-get this)))
 

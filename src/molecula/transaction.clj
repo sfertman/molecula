@@ -5,6 +5,9 @@
     (clojure.lang IFn ISeq)
     #_(clojure.lang.Util runtimeException)))
 
+(defn ex-set-after-commute [] (IllegalStateException. "Can't set after commute"))
+;; TODO: create errors namespace and put all ex-* fns there
+
 (def ^:dynamic *t* nil)
 
 (defrecord CFn [f args]
@@ -25,7 +28,8 @@
   :ensures #{}
 })
 
-(defn- throw-when-nil-t
+(defn running? [] (some? *t*))
+(defn throw-when-nil-t
   []
   (when (or (nil? *t*) #_(nil? (:info *t*))) ;; I'm not sure why I need info here but will keep the comment in case it does end up this way
     (throw (IllegalStateException. "No transaction running"))))
@@ -33,62 +37,58 @@
     ; something went terribly wrong and I should take a long hard
     ; look at my code!
 
-(defn get-ex [] (throw-when-nil-t) *t*)
-
-(defn tcontains? [op rk] (contains? (get (get-ex) op) rk))
-
-(defn tget*
-  ([t op] (get t op))
-  ([t op rk] (get-in t [op rk])))
-
-(defn tget [& args]
+(defn tconn []
   (throw-when-nil-t)
-  (apply tget* *t* args))
+  (:conn *t*))
 
-(defn- oldval [rk] (tget :oldvals rk))
-(defn- tval [rk] (tget :tvals rk))
+(defn tcontains? [op rk]
+  (throw-when-nil-t)
+  (contains? (*t* op) rk))
 
-(defmulti tput* (fn [op & _] op))
+(defn tget [& ks]
+  (throw-when-nil-t)
+  (get-in *t* ks))
 
-(defmethod tput* :refs
-  ([_ ref] (tput* :refs (.key ref) ref))
-  ([_ rk ref] (set! *t* (update *t* :refs assoc rk ref))))
+(defn oldval [rk] (tget :oldvals rk))
+(defn tval [rk] (tget :tvals rk))
 
-(defmethod tput* :oldvals
-  [_ rk val]
-  (set! *t* (update *t* :oldvals assoc rk val)))
+(defn tput-refs
+  [t ref] (update t :refs assoc (.key ref) ref))
+(defn tput-oldvals
+  [t rk oldval] (update t :oldvals assoc rk oldval))
+(defn tput-tvals
+  [t rk tval] (update t :tvals assoc rk tval))
+(defn tput-sets
+  [t rk] (update t :sets conj rk))
+(defn tput-ensures
+  [t rk] (update t :ensures conj rk))
+(defn tput-commutes
+  [t rk cfn]
+  (if (seq (get-in t [:commutes rk]))
+    (update-in t [:commutes rk] conj cfn)
+    (update t :commutes assoc rk [cfn])))
 
-(defmethod tput* :tvals
-  [_ rk val]
-  (set! *t* (update *t* :tvals assoc rk val)))
-
-(defmethod tput* :commutes
-  [_ rk cfn]
-  (when (nil? (tget :commutes rk))
-    (set! *t* (update *t* :commutes assoc rk [])))
-  (set! *t* (update-in *t* [:commutes rk] conj cfn)))
-
-(defmethod tput* :ensures
-  [_ rk]
-  (set! *t* (update *t* :ensures conj rk)))
-
-(defmethod tput* :sets
-  [_ rk]
-  (set! *t* (update *t* :sets conj rk)))
+(def tput-fn {
+  :refs     tput-refs
+  :oldvals  tput-oldvals
+  :tvals    tput-tvals
+  :sets     tput-sets
+  :ensures  tput-ensures
+  :commutes tput-commutes})
 
 (defn tput!
-  [op rk & args]
+  [op & args]
   (throw-when-nil-t)
-  (apply tput* op rk args))
+  (set! *t* (apply (tput-fn op) *t* args)))
 
-(defn deref* [rk] (r/deref* (:conn *t*) rk ))
+(defn deref* [rk] (r/deref* (tconn) rk))
 ;; this should probably be in molecula.redis
 
 (defn do-get
   [ref]
   (let [rk (.key ref)]
     (if (tcontains? :tvals rk)
-      (tval ref)
+      (tval rk)
       (let [redis-val (deref* rk)]
         (tput! :refs ref)
         (tput! :oldvals rk redis-val)
@@ -99,7 +99,7 @@
   [ref value]
   (let [rk (.key ref)]
     (when (tcontains? :commutes rk)
-      (throw (IllegalStateException. "Can't set after commute")))
+      (throw (ex-set-after-commute)))
     (when-not (tcontains? :sets rk)
       (tput! :sets rk))
     (do-get ref) ;; adds ref to oldval if not already there
@@ -123,13 +123,13 @@
     (tput! :commutes rk cfn)
     ret))
 
-(defn- commute-ref
+(defn commute-ref
   "Applies all ref's commutes starting with ref's oldval"
   [rk]
   (let [cfns (apply comp (tget :commutes rk))]
     (cfns (oldval rk))))
 
-(defn- validate*
+(defn validate*
   "This is a clojure re-implementation of clojure.lang.ARef/validate because it cannot be accessed by subclasses. It is needed to invoke when changing ref state"
   [^clojure.lang.IFn vf val]
   (try
@@ -140,48 +140,48 @@
     (catch Exception e
       (throw (IllegalStateException. "Invalid reference state" e)))))
 
-(defn- updatables
+(defn updatables
   "Returns a set of refs that have been altered or commuted"
   [] (apply conj (tget :sets) (keys (tget :commutes))))
 
-(defn- validate
+(defn validate
   "Validates all updatables given the latest tval"
   []
   (doseq [rk (updatables)]
     (let [ref (tget :refs rk)]
       (validate* (.getValidator ref) (tval ref)))))
 
-(defn- commit
+(defn commit
   "Returns:
   - nil if everything went ok
   - an error \"object\" if anything went wrong"
   [retries]
-  ;; needs to syncronize number of retries with outter loop
-  ;; it is possible that it's better to do everything in (run) for simplicity
-  ;; problem is that it's going to be a mega function and I kind of want to avoid that
+  ;; TODO: this needs to handle the case when there is nothing to commit
   (if (<= retries 0)
     {:error :no-more-retries
      :retries retries}
     (let [ensures (apply concat (map (fn [rk] [rk (oldval rk)]) (tget :ensures)))
           updates (apply concat (map (fn [rk] [rk (oldval rk) (tval rk)]) (updatables)))
-          result (r/cas-multi-or-report (:conn *t*) ensures updates)]
+          result (r/cas-multi-or-report (tconn) ensures updates)]
       (when-not (true? result)
         (let [rks (map (fn [rk] (tget :commutes rk)) result)]
           (if (some nil? rks)
             {:error :stale-oldvals
              :retries retries}  ;; should be retried in outer loop
             (do
-              (doseq [rk rks]
-                (commute-ref rk))
+              (doseq [rk rks
+                      rv (r/deref-multi (tconn) rks)]
+                (tput! :oldvals rk rv)
+                (commute-ref rk)) ;; I need to update :oldvals before I can commute
               (recur (dec retries))))))))) ;; should be retried in here
 
-(defn- notify-watches
+(defn notify-watches
   "Validates all updatables given the latest oldval and latest tval"
   []
   (doseq [rk (updatables)]
     (.notifyWatches (tget :refs rk) (oldval rk) (tval rk))))
 
-(defn- dispatch-agents [] 42) ;; TODO: this at some point?
+(defn dispatch-agents [] 42) ;; TODO: this at some point?
 
 (defn ex-retry-limit [] ;; this is a function because I need a NEW exception at the point of failure
   (RuntimeException. "Transaction failed after reaching retry limit"))

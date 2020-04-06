@@ -1,14 +1,13 @@
 (ns molecula.core-test
   (:require
     [clojure.test :refer :all]
+    [molecula.common-test :as ct :refer [rr mds wcar* flushall]]
     [molecula.core :as mol :refer [redis-ref]]
     [molecula.RedisRef]
+    [molecula.transaction :as tx]
     [taoensso.carmine :as redis]))
 
-(def conn {:pool {} :spec {:uri "redis://localhost:6379"}})
-(defmacro wcar* [& body] `(redis/wcar conn ~@body))
-
-(wcar* (redis/flushall))
+(flushall)
 
 (comment
  """
@@ -37,14 +36,35 @@
 
  """)
 
-(deftest test-examples
+(deftest deref-test
+  (testing "Should deref outside transaction"
+    (let [r1 (rr :deref|r1 42 )]
+      (is (= 42 @r1)))
+    (let [r2 (rr :deref|r2 {:k 42})]
+      (is (= {:k 42} @r2))))
+  (testing "Shoud deref inside transaction"
+    (let [r3 (rr :deref|r3 42)]
+      (prn "REDIS-REF R3" r3)
+      (prn "@r3 is" @r3)
+      (mds
+        (prn "REDIS-REF inside-tx" r3)
+        (prn "@r3 is" @r3)
+        (clojure.pprint/pprint tx/*t*)
+        (alter r3 inc)
+        (prn "after inc @r3 is" @r3)
+        #_(is (= 43 @r3))))))
+
+(deftest alter-test
+
+)
+#_(deftest test-examples
 
   ;; let's use https://www.braveclojure.com/zombie-metaphysics/ refs example and try to implement it using carmine before attmpting to abstract anything
 
   (def sock-varieties
-    #{"darned" "argyle" "wool" "horsehair" "mulleted"
+    #{"ppp" "darned" "argyle" "wool" "horsehair" "mulleted"
       "passive-aggressive" "striped" "polka-dotted"
-      "athletic" "business" "power" "invisible" "gollumed"})
+      "athletic" "business" "power" "invisible" "gollumed" "zzz"})
 
   (defn sock-count
     [sock-variety count]
@@ -65,13 +85,20 @@
   (prn sock-gnome sock-gnome)
   (def dryer (redis-ref* :dryer
                         {:name "LG 1337"
-                          :socks (set (map #(sock-count % 2) sock-varieties))}))
+                         :socks (set (map #(sock-count % 2) sock-varieties))}))
   (prn "dryer" dryer)
   ;; try to make this work on redis (possibly with RedisAtom)
   (defn steal-sock
     [gnome dryer]
+    ; (prn "dryer before tx")
+    ; (clojure.pprint/pprint @dryer)
     (mol/dosync conn
+      (prn "dryer inside tx")
+      (clojure.pprint/pprint @dryer)
+      ;; ^ TODO: something bout this deref messes everything up -- make a simple test for this
       (when-let [pair (some #(if (= (:count %) 2) %) (:socks @dryer))]
+        (prn "Pair found!")
+        (clojure.pprint/pprint pair)
         (let [updated-count (sock-count (:variety pair) 1)]
           (alter gnome update-in [:socks] conj updated-count)
           (alter dryer update-in [:socks] disj pair)
@@ -83,6 +110,9 @@
   (prn "SHOW ME YOUR SOCKS!!!!")
   (prn (:socks @sock-gnome))
 
+  ; (prn "steal another one") ;; <- for some reason I cannot steal another sock; pair is not found in dryer after stealing just one
+  ; (steal-sock sock-gnome dryer)
+  ; (prn (:socks @sock-gnome))
 
   ; (comment
   ;   ;; counter example
