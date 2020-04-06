@@ -11,9 +11,13 @@
   (map :data (r/wcar conn (apply r/mget ks))))
 
 ;; Note: watch out for LazySeq
-(defn set-multi! [conn kvs]
-  (let [kvs* (apply concat (map (fn [[k v]] [k {:data v}]) (partition 2 kvs)))]
-    (r/wcar conn (apply r/mset kvs*))))
+(defn set-multi!
+  ([conn kvs]
+    (let [kvs* (apply concat (map (fn [[k v]] [k {:data v}]) (partition 2 kvs)))]
+      (r/wcar conn (apply r/mset kvs*))))
+  ([conn ks vs]
+    (let [kvs (apply concat (map (fn [k v] [k {:data v}]) ks vs))]
+      (r/wcar conn (apply r/mset kvs)))))
 
 (defn conflicts
   ;; ^ there might be a more efficient way to write this fn
@@ -65,6 +69,6 @@
       (if (seq cf)
         (do (r/wcar conn (r/unwatch))
             cf)
-        (if (nil? (multi-exec conn (set-multi! conn (interleave uks unv))))
+        (if (nil? (multi-exec conn (set-multi! conn uks unv)))
           (conflicts conn ks ovs) ;; return what changed while trying multi-exec
           true)))))

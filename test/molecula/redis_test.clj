@@ -28,13 +28,23 @@
   ;   (prn (sut/set-multi! conn [:a 42])))
   (testing "Set 1 kv"
     (sut/set-multi! conn [:set-multi|k11 42])
-    (is (= [{:data 42}] (wcar* (redis/mget :set-multi|k11)))))
+    (is (= [{:data 42}] (wcar* (redis/mget :set-multi|k11))))
+    (sut/set-multi! conn [:set-multi|k12] [42])
+    (is (= [{:data 42}] (wcar* (redis/mget :set-multi|k12)))))
   (testing "Set 3 kvs"
     (sut/set-multi!
       conn
       [:set-multi|k31 42
        :set-multi|k32 43
        :set-multi|k33 44])
+    (is (= (map #(hash-map :data %) [42 43 44])
+           (wcar* (redis/mget :set-multi|k31
+                              :set-multi|k32
+                              :set-multi|k33))))
+    (sut/set-multi!
+      conn
+      [:set-multi|k31 :set-multi|k32 :set-multi|k33]
+      [42 43 44])
     (is (= (map #(hash-map :data %) [42 43 44])
            (wcar* (redis/mget :set-multi|k31
                               :set-multi|k32
