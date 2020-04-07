@@ -110,9 +110,8 @@
   [ref]
   (let [rk (.key ref)]
     (when-not (tcontains? :ensures rk)
-      (let [value (do-get ref)]
-        (tput! :ensures rk)
-        value))))
+      (do-get ref)
+      (tput! :ensures rk))))
 
 (defn do-commute
   [ref f args]
