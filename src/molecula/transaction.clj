@@ -148,8 +148,7 @@
   "Validates all updatables given the latest tval"
   []
   (doseq [rk (updatables)]
-    (let [ref (tget :refs rk)]
-      (validate* (.getValidator ref) (tval ref)))))
+    (validate* (.getValidator (tget :refs rk)) (tval rk))))
 
 (defn commit
   "Returns:
