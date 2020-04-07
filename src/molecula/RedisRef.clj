@@ -34,19 +34,6 @@
 (defn -key [this] (:k (.state this)))
 (defn -conn [this] (:conn (.state this)))
 
-(defn- validate*
-  "This is a clojure re-implementation of clojure.lang.ARef/validate because
-  cannot be accessed by subclasses Needed to invoke when changing ref state"
-  [^clojure.lang.IFn vf val]
-  (try
-    (if (and (some? vf) (not (vf val)))
-      (throw (IllegalStateException. "Invalid reference state")))
-    (catch RuntimeException re
-      (throw re))
-    (catch Exception e
-      (throw (IllegalStateException. "Invalid reference state" e)))))
-
-
 ;; TODO? not sure if I should throw ref unbound ex here if no key on redis
 
 (defn -deref

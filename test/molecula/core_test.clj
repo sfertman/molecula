@@ -4,7 +4,6 @@
     [molecula.common-test :as ct :refer [rr mds wcar* flushall]]
     [molecula.core :as mol :refer [redis-ref]]
     [molecula.RedisRef]
-    [molecula.transaction :as tx]
     [taoensso.carmine :as redis]))
 
 (flushall)
@@ -36,28 +35,11 @@
 
  """)
 
-(deftest deref-test
-  (testing "Should deref outside transaction"
-    (let [r1 (rr :deref|r1 42 )]
-      (is (= 42 @r1)))
-    (let [r2 (rr :deref|r2 {:k 42})]
-      (is (= {:k 42} @r2))))
-  (testing "Shoud deref inside transaction"
-    (let [r3 (rr :deref|r3 42)]
-      (prn "REDIS-REF R3" r3)
-      (prn "@r3 is" @r3)
-      (mds
-        (prn "REDIS-REF inside-tx" r3)
-        (prn "@r3 is" @r3)
-        (clojure.pprint/pprint tx/*t*)
-        (alter r3 inc)
-        (prn "after inc @r3 is" @r3)
-        #_(is (= 43 @r3))))))
 
 (deftest alter-test
 
 )
-#_(deftest test-examples
+(deftest test-examples
 
   ;; let's use https://www.braveclojure.com/zombie-metaphysics/ refs example and try to implement it using carmine before attmpting to abstract anything
 
@@ -82,23 +64,14 @@
   (def redis-ref* (partial redis-ref conn))
   (def sock-gnome (redis-ref* :gnome
                               (generate-sock-gnome "Barumpharumph")))
-  (prn sock-gnome sock-gnome)
+  ; (prn sock-gnome sock-gnome)
   (def dryer (redis-ref* :dryer
                         {:name "LG 1337"
                          :socks (set (map #(sock-count % 2) sock-varieties))}))
-  (prn "dryer" dryer)
-  ;; try to make this work on redis (possibly with RedisAtom)
   (defn steal-sock
     [gnome dryer]
-    ; (prn "dryer before tx")
-    ; (clojure.pprint/pprint @dryer)
     (mol/dosync conn
-      (prn "dryer inside tx")
-      (clojure.pprint/pprint @dryer)
-      ;; ^ TODO: something bout this deref messes everything up -- make a simple test for this
       (when-let [pair (some #(if (= (:count %) 2) %) (:socks @dryer))]
-        (prn "Pair found!")
-        (clojure.pprint/pprint pair)
         (let [updated-count (sock-count (:variety pair) 1)]
           (alter gnome update-in [:socks] conj updated-count)
           (alter dryer update-in [:socks] disj pair)
@@ -110,33 +83,47 @@
   (prn "SHOW ME YOUR SOCKS!!!!")
   (prn (:socks @sock-gnome))
 
-  ; (prn "steal another one") ;; <- for some reason I cannot steal another sock; pair is not found in dryer after stealing just one
-  ; (steal-sock sock-gnome dryer)
-  ; (prn (:socks @sock-gnome))
-
-  ; (comment
-  ;   ;; counter example
-  ; (def counter (ref 0))
-  ; (future
-  ;   (mol/dosync
-  ;   (alter counter inc)
-  ;   (println @counter)
-  ;   (Thread/sleep 500)
-  ;   (alter counter inc)
-  ;   (println @counter)))
-  ; (Thread/sleep 250)
-  ; (println @counter)
+  (prn "steal another one")
+  (steal-sock sock-gnome dryer)
+  (prn (:socks @sock-gnome))
 
 
-  ; ;; commute example
-  ; (defn sleep-print-update
-  ;   [sleep-time thread-name update-fn]
-  ;   (fn [state]
-  ;     (Thread/sleep sleep-time)
-  ;     (println (str thread-name ": " state))
-  ;     (update-fn state)))
-  ; (def counter (ref 0))
-  ; (future (mol/dosync (commute counter (sleep-print-update 100 "Thread A" inc))))
-  ; (future (mol/dosync (commute counter (sleep-print-update 150 "Thread B" inc))))
-  ; )
+  (prn "steal another one")
+  (steal-sock sock-gnome dryer)
+  (prn (:socks @sock-gnome))
+
+  ;; ^^ all work as expected
+
+
+
+  ;; counter example
+  (def counter (rr :rr-counter 0)) ;; works as expected
+  (future
+    (mol/dosync conn
+      (alter counter inc)
+      (println @counter)
+      (Thread/sleep 500)
+      (alter counter inc)
+      (println @counter)))
+  (Thread/sleep 250)
+  (println @counter)
+
+  (Thread/sleep 500)
+  (prn "done")
+
+  ;; commute example
+  (defn sleep-print-update
+    [sleep-time thread-name update-fn]
+    (fn [state]
+      (Thread/sleep sleep-time)
+      (println (str thread-name ": " state))
+      (update-fn state)))
+  (def counter (rr :rr-commute 0))
+  (future (mol/dosync conn (commute counter (sleep-print-update 100 "Thread A" inc))))
+  (future (mol/dosync conn (commute counter (sleep-print-update 150 "Thread B" inc))))
+  (Thread/sleep 3000)
+  (prn "all done")
+  ;; commute example doesn't quite work
+
   )
+
