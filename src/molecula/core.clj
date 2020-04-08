@@ -5,7 +5,7 @@
     [molecula.redis :refer [setnx*]]
     [molecula.transaction :as tx]))
 
-(defmacro ^:private mol-sync
+(defmacro mol-sync
   [conn flags-ignored-for-now & body]
   `(tx/run-in-transaction ~conn (fn [] ~@body)))
 
