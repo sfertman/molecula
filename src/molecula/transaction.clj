@@ -183,13 +183,12 @@
   (RuntimeException. "Transaction failed after reaching retry limit"))
 ;; ^^ should be clojure.lang.Util. runtimeException; having some trouble importing it
 
-(defn run ;; TODO this next
+(defn run ;; TODO
   [^clojure.lang.IFn f]
-  ;; loop [retry limit < some-max limit and mebbe timers too]
-  (loop [retries 100]
+  (loop [retries 100] ;; TODO: add timeout
     (when (<= retries 0)
       (throw (ex-retry-limit)))
-    (let [ret (f)] ;;  add a try catch arpund this thing
+    (let [ret (f)] ;; add a try catch arpund this thing?
       (validate)
       (let [result (commit retries)]
         (if (nil? result)

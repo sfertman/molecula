@@ -111,6 +111,12 @@
             (is (= (sut/->CFn - [30 3]) (second commutes2)))
             (is (= 67 result2 (sut/tval rk2)))))))))
 (deftest commit-test
+  ;; Do redis/cas-multi-or-report first
+  ;; also need to handle
+  ;;  no updates case
+  ;;  what happens when there's nothing ot update but something to ensure?
+
+  (testing "No more retries")
   )
 (deftest run-test)
 (deftest run-in-transaction-test)
