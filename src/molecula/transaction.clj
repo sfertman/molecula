@@ -14,8 +14,6 @@
   IFn
     (invoke [this oldval] (apply (:f this) oldval (:args this))))
 
-; (defn ->cfn [^clojure.lang.IFn f ^clojure.lang.ISeq args] (->CFn f args))
-
 ;; hmm... most times we need to update more than one key in *t*; could I use a bunch of actual clojure refs for this?
 ;; Could be pretty fun but not sure if necessary because everything is going to be happening on a single thread
 (defn ->transaction [conn] {
