@@ -203,7 +203,8 @@
 
 (defn run-in-transaction
   [conn ^clojure.lang.IFn f]
-  (binding [*t* (->transaction conn)]
+  (if (nil? *t*)
+    (binding [*t* (->transaction conn)] (run f))
     (run f)))
   ;; there's lots more weird stuff in LockingTransaction class but doesn't seem applicable for now. Let's start simple and see how it goes.
 
