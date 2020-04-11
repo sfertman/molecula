@@ -17,3 +17,14 @@
   "Like zipseq but returns all vectors."
   [& colls]
   (vec (map vec (partition (count colls) (apply interleave colls)))))
+
+(defn with-timeout-fn
+  [t-ms f]
+  (let [fut (future (f))
+        ret (deref fut t-ms ::operation-timed-out)]
+    (when (= ret ::operation-timed-out)
+      (future-cancel fut))
+    ret))
+
+(defmacro with-timeout [t-ms & body]
+  `(with-timeout-fn ~t-ms (fn [] ~@body)))
