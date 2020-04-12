@@ -1,7 +1,8 @@
 (ns molecula.core-test
   (:require
+    [molecula.transaction :as tx]
     [clojure.test :refer :all]
-    [molecula.common-test :as ct :refer [rr mds wcar* flushall]]
+    [molecula.common-test :as ct :refer [conn rr mds wcar* flushall]]
     [molecula.core :as mol :refer [redis-ref]]
     [molecula.RedisRef]
     [taoensso.carmine :as redis]))
@@ -39,7 +40,7 @@
 (deftest alter-test
 
 )
-(deftest test-examples
+#_(deftest test-examples
 
   ;; let's use https://www.braveclojure.com/zombie-metaphysics/ refs example and try to implement it using carmine before attmpting to abstract anything
 
@@ -59,7 +60,6 @@
     {:name name
     :socks #{}})
 
-  (def conn {:pool {} :host "redis://localhost:6379"})
 
   (def redis-ref* (partial redis-ref conn))
   (def sock-gnome (redis-ref* :gnome
@@ -111,7 +111,10 @@
   (Thread/sleep 500)
   (prn "done")
 
-  ;; commute example
+
+  )
+(deftest spam
+ ;; commute example
   (defn sleep-print-update
     [sleep-time thread-name update-fn]
     (fn [state]
@@ -119,11 +122,24 @@
       (println (str thread-name ": " state))
       (update-fn state)))
   (def counter (rr :rr-commute 0))
-  (future (mol/dosync conn (commute counter (sleep-print-update 100 "Thread A" inc))))
-  (future (mol/dosync conn (commute counter (sleep-print-update 150 "Thread B" inc))))
-  (Thread/sleep 3000)
+  (future (mol/dosync conn (set! tx/*t* (assoc tx/*t* :thread "A")) (commute counter (sleep-print-update 1000 "Thread A" inc))))
+  (future (mol/dosync conn (Thread/sleep 50) (set! tx/*t* (assoc tx/*t* :thread "B")) (commute counter (sleep-print-update 1500 "Thread B" inc))))
+  (Thread/sleep 5000)
+  (prn "@counter" @counter)
   (prn "all done")
-  ;; commute example doesn't quite work
+  ;; TODO: commute example works fine but not the same as stm
+  ;; have to finish writing tests for redis/cas-multi and tx/commit -- something is probably wrong there
+
+; (defn sleep-print-update
+;   [sleep-time thread-name update-fn]
+;   (fn [state]
+;     (Thread/sleep sleep-time)
+;     (println (str thread-name ": " state))
+;     (update-fn state)))
+; (def counter (ref 0))
+; (future (dosync (commute counter (sleep-print-update 1000 "Thread A" inc))))
+; (future (dosync (commute counter (sleep-print-update 1500 "Thread B" inc))))
+
+; (Thread/sleep 5000)
 
   )
-

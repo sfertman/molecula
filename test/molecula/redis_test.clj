@@ -58,4 +58,34 @@
       (is (= [rk1 rk2] (sut/conflicts conn [rk1 rk2 rk3] [99 98 rv3])))
       (is (= [rk1 rk2 rk3] (sut/conflicts conn [rk1 rk2 rk3] [99 98 97]))))))
 
-(deftest cas-multi-or-report-test) ;; TODO: this next
+(deftest cas-multi-or-report-test-conflicts
+  (testing "Should return true when update only and no conflicts"
+    (let [rks [:mcas1|k1 :mcas1|k2 :mcas1|k3]
+          oldvals [42 43 44]
+          newvals [12 13 14]]
+      (is (= "OK" (sut/set-multi! conn rks oldvals)))
+      (let [updates (interleave rks oldvals newvals)]
+        (is (true? (sut/cas-multi-or-report conn [] updates))))))
+  (testing "Sould return conflicting key(s) when updates only and has conflic(s)"
+    (let [rks [:mcas2|k1 :mcas2|k2 :mcas2|k3]
+          oldvals [42 43 44]
+          newvals [52 53 54]]
+      (is (= "OK" (sut/set-multi! conn rks oldvals)))
+      (let [updates (interleave rks [42 33 44] newvals)]
+        (is (= [(second rks)] (sut/cas-multi-or-report conn [] updates))))))
+  (testing "Should return false when updates only and multi/exec fails not due to conflics")
+  (testing "Should return true when updates, ensures and no conflics"
+    (let [rks [:mcas1|k1 :mcas1|k2 :mcas1|k3]
+          oldvals [42 43 44]
+          newvals oldvals]
+      (is (= "OK" (sut/set-multi! conn rks oldvals)))
+      (let [updates (interleave rks oldvals newvals)]
+        (is (true? (sut/cas-multi-or-report conn [] updates))))))
+  (testing "Should return conflicts when updates, ensures & stale updates")
+  (testing "Should return conflicts when updates, ensures & stale ensures")
+  (testing "Should return conflicts when updates, ensures & stale updates, ensures")
+
+  (testing "ensures only") ;; I'm not sure what's the behoviour supposed to be here
+  (testing "timeout") ;; not implemented
+
+  )

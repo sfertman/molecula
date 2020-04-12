@@ -56,7 +56,7 @@
   TODO: figure out a way to fail a transaction that takes too long
   TODO(ocd): optimize let difinitions
   "
-  [conn ensures updates & {:keys [timeout]}]
+  [conn ensures updates]
   (let [eks (take-nth 3 ensures) ;; ensure keys
         eov (take-nth 3 (drop 1 ensures)) ;; oldvals to ensure
         uks (take-nth 3 updates) ;; update keys
@@ -70,5 +70,15 @@
         (do (r/wcar conn (r/unwatch))
             cf)
         (if (nil? (multi-exec conn (set-multi! conn uks unv)))
-          (conflicts conn ks ovs) ;; return what changed while trying multi-exec
+          (if-let [cf (seq (conflicts conn ks ovs))]
+            cf
+            false) ;; return what changed while trying multi-exec
           true)))))
+
+
+(defn mcas-or-report
+  [conn ensures updates & {:keys [timeout-ms]}]
+  (u/with-timeout timeout-ms
+    ;; I can also do this in tx with rks as inputs and transaform to inputs as above
+    (cas-multi-or-report conn ensures updates)))
+    ;;^^ TODO: gotta catch that ::operation-timed-out flag and throw whatever is expected here

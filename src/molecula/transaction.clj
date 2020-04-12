@@ -43,6 +43,10 @@
   (throw-when-nil-t)
   (contains? (*t* op) rk))
 
+(defn tcommuted? [rk] (tcontains? :commutes rk))
+(defn tensured? [rk] (tcontains? :ensures rk))
+(defn tset? [rk] (tcontains? :sets rk))
+
 (defn tget [& ks]
   (throw-when-nil-t)
   (get-in *t* ks))
@@ -113,11 +117,13 @@
 
 (defn do-commute
   [ref f args]
+  (prn (:thread *t*) "doing-commute" (.key ref))
   (let [rk (.key ref)
         cfn (->CFn f args)
         ret (cfn (do-get ref))]
     (tput! :tvals rk ret)
     (tput! :commutes rk cfn)
+    (prn (:thread *t*) "did-commute" rk (oldval rk) "->" (tval rk))
     ret))
 
 (defn commute-ref
@@ -160,16 +166,17 @@
           updates (apply concat (map (fn [rk] [rk (oldval rk) (tval rk)]) (updatables)))
           result (r/cas-multi-or-report (tconn) ensures updates)]
       (when-not (true? result)
-        (let [rks (map (fn [rk] (tget :commutes rk)) result)]
-          (if (some nil? rks)
+        (let [rks (map (fn [rk] (when (tcommuted? rk) rk)) result)]
+          (if (or (some nil? rks)
+                  (some identity (map (fn [rk] (when (or (tensured? rk) (tset? rk)) rk) ) rks)))
             {:error :stale-oldvals
-             :retries retries}  ;; should be retried in outer loop
+             :retries retries}  ;; entire tx needs retry anything outside commute is stale
             (do
               (doseq [rk rks
                       rv (r/deref-multi (tconn) rks)]
-                (tput! :oldvals rk rv)
-                (commute-ref rk)) ;; I need to update :oldvals before I can commute
-              (recur (dec retries))))))))) ;; should be retried in here
+                (tput! :oldvals rk rv) ;; refresh oldvals
+                (tput! :tvals rk (commute-ref rk))) ;; recalculate commutes only
+              (recur (dec retries))))))))) ;; retry commit
 
 (defn notify-watches
   "Validates all updatables given the latest oldval and latest tval"
@@ -204,8 +211,7 @@
 (defn run-in-transaction
   [conn ^clojure.lang.IFn f]
   (if (nil? *t*)
-    (binding [*t* (->transaction conn)] (run f))
+    (binding [*t* (->transaction conn)]
+      (run f))
     (run f)))
-  ;; there's lots more weird stuff in LockingTransaction class but doesn't seem applicable for now. Let's start simple and see how it goes.
-
-  ; So, info is to track whether tx is running or committing (also for start point in time)
+  ; So, info is to track whether tx is running or committing (also for start point in time) which doesn't seem applicable for optimistic locking in redis
