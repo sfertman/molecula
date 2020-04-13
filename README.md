@@ -23,7 +23,7 @@ dosync
 (mol/dosync conn
   (alter this inc)
   (println "hello")
-  (alter than dec)
+  (alter that dec)
   (println "all-done"))
 ```
 
