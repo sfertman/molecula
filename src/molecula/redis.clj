@@ -3,7 +3,10 @@
     [molecula.util :as u]
     [taoensso.carmine :as r]))
 
-(defn deref* [conn k] (:data (r/wcar conn (r/get k))))
+(defn deref* [conn k]
+  (if-let [redis-val (r/wcar conn (r/get k))]
+    (:data redis-val)
+    {:mol-redis-errr :ref-key-nx}))
 
 (defn setnx* [conn k newval] (r/wcar conn (r/setnx k {:data newval})))
 

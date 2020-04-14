@@ -122,9 +122,9 @@
       (println (str thread-name ": " state))
       (update-fn state)))
   (def counter (rr :rr-commute 0))
-  (future (mol/dosync conn (set! tx/*t* (assoc tx/*t* :thread "A")) (commute counter (sleep-print-update 1000 "Thread A" inc))))
-  (future (mol/dosync conn (Thread/sleep 50) (set! tx/*t* (assoc tx/*t* :thread "B")) (commute counter (sleep-print-update 1500 "Thread B" inc))))
-  (Thread/sleep 5000)
+  (future (mol/dosync conn (prn "hello A") (commute counter (sleep-print-update 100 "Thread A" inc))))
+  (future (mol/dosync conn (prn "hello B") (commute counter (sleep-print-update 150 "Thread B" inc))))
+  (Thread/sleep 1000)
   (prn "@counter" @counter)
   (prn "all done")
   ;; TODO: commute example works fine but not the same as stm

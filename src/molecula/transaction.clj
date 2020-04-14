@@ -6,6 +6,7 @@
     #_(clojure.lang.Util runtimeException)))
 
 (defn ex-set-after-commute [] (IllegalStateException. "Can't set after commute"))
+(defn ex-ref-unbound [ref] (IllegalStateException. (str ref " is unbound.")))
 ;; TODO: create errors namespace and put all ex-* fns there
 
 (def ^:dynamic *t* nil)
@@ -39,13 +40,14 @@
   (throw-when-nil-t)
   (:conn *t*))
 
-(defn tcontains? [op rk]
-  (throw-when-nil-t)
-  (contains? (*t* op) rk))
+(defn tcontains*? [op rk] (contains? (*t* op) rk))
 
-(defn tcommuted? [rk] (tcontains? :commutes rk))
-(defn tensured? [rk] (tcontains? :ensures rk))
-(defn tset? [rk] (tcontains? :sets rk))
+(defn tref? [rk] (tcontains*? :refs rk))
+(defn toldval? [rk] (tcontains*? :oldvals rk))
+(defn tval? [rk] (tcontains*? :tvals rk))
+(defn tcommuted? [rk] (tcontains*? :commutes rk))
+(defn tensured? [rk] (tcontains*? :ensures rk))
+(defn tset? [rk] (tcontains*? :sets rk))
 
 (defn tget [& ks]
   (throw-when-nil-t)
@@ -83,47 +85,42 @@
   (throw-when-nil-t)
   (set! *t* (apply (tput-fn op) *t* args)))
 
-(defn deref* [rk] (r/deref* (tconn) rk))
-;; this should probably be in molecula.redis
-
 (defn do-get
   [ref]
   (let [rk (.key ref)]
-    (if (tcontains? :tvals rk)
+    (if (tval? rk)
       (tval rk)
-      (let [redis-val (deref* rk)]
-        (tput! :refs ref)
-        (tput! :oldvals rk redis-val)
-        (tput! :tvals rk redis-val)
+      (let [redis-val (r/deref* (tconn) rk)]
+        (when (= {:mol-redis-errr :ref-key-nx} redis-val)
+          (throw (ex-ref-unbound ref)))
         redis-val))))
 
 (defn do-set
   [ref value]
-  (let [rk (.key ref)]
-    (when (tcontains? :commutes rk)
-      (throw (ex-set-after-commute)))
-    (when-not (tcontains? :sets rk)
-      (tput! :sets rk))
-    (do-get ref) ;; adds ref to oldval if not already there
+  (let [rk (.key ref)] ;; no need to test if tx running because will never be invoked outside tx unless user really wants to get weird
+    (when (tcommuted? rk) (throw (ex-set-after-commute)))
+    (when-not (tref? rk) (tput! :refs ref))
+    (when-not (toldval? rk) (tput! :oldvals rk (do-get ref)))
+    (when-not (tset? rk) (tput! :sets rk))
     (tput! :tvals rk value) ;; put new val in tvals
     value))
 
 (defn do-ensure
   [ref]
   (let [rk (.key ref)]
-    (when-not (tcontains? :ensures rk)
-      (do-get ref)
-      (tput! :ensures rk))))
+    (when-not (toldval? rk) (tput! :oldvals rk (do-get ref)))
+    (when-not (tensured? rk) (tput! :ensures rk))))
 
 (defn do-commute
   [ref f args]
-  (prn (:thread *t*) "doing-commute" (.key ref))
   (let [rk (.key ref)
         cfn (->CFn f args)
-        ret (cfn (do-get ref))]
+        rv (do-get ref)
+        ret (cfn rv)]
+    (when-not (tref? rk) (tput! :refs ref))
+    (when-not (toldval? rk) (tput! :oldvals rk rv))
     (tput! :tvals rk ret)
     (tput! :commutes rk cfn)
-    (prn (:thread *t*) "did-commute" rk (oldval rk) "->" (tval rk))
     ret))
 
 (defn commute-ref
@@ -195,7 +192,7 @@
   (loop [retries 100] ;; TODO: add timeout
     (when (<= retries 0)
       (throw (ex-retry-limit)))
-    (let [ret (f)] ;; add a try catch arpund this thing?
+    (let [ret (f)] ;; add a try catch around this thing?
       (validate)
       (let [result (commit retries)]
         (if (nil? result)
