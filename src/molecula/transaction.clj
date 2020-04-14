@@ -36,25 +36,11 @@
     ; something went terribly wrong and I should take a long hard
     ; look at my code!
 
-(defn tconn []
-  (throw-when-nil-t)
-  (:conn *t*))
+(defn tconn [] (:conn *t*))
 
-(defn tcontains*? [op rk] (contains? (*t* op) rk))
+(defn tcontains? [op rk] (contains? (*t* op) rk))
 
-(defn tref? [rk] (tcontains*? :refs rk))
-(defn toldval? [rk] (tcontains*? :oldvals rk))
-(defn tval? [rk] (tcontains*? :tvals rk))
-(defn tcommuted? [rk] (tcontains*? :commutes rk))
-(defn tensured? [rk] (tcontains*? :ensures rk))
-(defn tset? [rk] (tcontains*? :sets rk))
-
-(defn tget [& ks]
-  (throw-when-nil-t)
-  (get-in *t* ks))
-
-(defn oldval [rk] (tget :oldvals rk))
-(defn tval [rk] (tget :tvals rk))
+(defn tget [& ks] (get-in *t* ks))
 
 (defn tput-refs
   [t ref] (update t :refs assoc (.key ref) ref))
@@ -80,16 +66,13 @@
   :ensures  tput-ensures
   :commutes tput-commutes})
 
-(defn tput!
-  [op & args]
-  (throw-when-nil-t)
-  (set! *t* (apply (tput-fn op) *t* args)))
+(defn tput! [op & args] (set! *t* (apply (tput-fn op) *t* args)))
 
 (defn do-get
   [ref]
   (let [rk (.key ref)]
-    (if (tval? rk)
-      (tval rk)
+    (if (tcontains? :tvals rk)
+      (tget :tvals rk)
       (let [redis-val (r/deref* (tconn) rk)]
         (when (= {:mol-redis-errr :ref-key-nx} redis-val)
           (throw (ex-ref-unbound ref)))
@@ -98,18 +81,24 @@
 (defn do-set
   [ref value]
   (let [rk (.key ref)] ;; no need to test if tx running because will never be invoked outside tx unless user really wants to get weird
-    (when (tcommuted? rk) (throw (ex-set-after-commute)))
-    (when-not (tref? rk) (tput! :refs ref))
-    (when-not (toldval? rk) (tput! :oldvals rk (do-get ref)))
-    (when-not (tset? rk) (tput! :sets rk))
+    (when (tcontains? :commutes rk)
+      (throw (ex-set-after-commute)))
+    (when-not (tcontains? :refs rk)
+      (tput! :refs ref))
+    (when-not (tcontains? :oldvals rk)
+      (tput! :oldvals rk (do-get ref)))
+    (when-not (tcontains? :sets rk)
+      (tput! :sets rk))
     (tput! :tvals rk value) ;; put new val in tvals
     value))
 
 (defn do-ensure
   [ref]
   (let [rk (.key ref)]
-    (when-not (toldval? rk) (tput! :oldvals rk (do-get ref)))
-    (when-not (tensured? rk) (tput! :ensures rk))))
+    (when-not (tcontains? :oldvals rk)
+      (tput! :oldvals rk (do-get ref)))
+    (when-not (tcontains? :ensures rk)
+      (tput! :ensures rk))))
 
 (defn do-commute
   [ref f args]
@@ -117,8 +106,10 @@
         cfn (->CFn f args)
         rv (do-get ref)
         ret (cfn rv)]
-    (when-not (tref? rk) (tput! :refs ref))
-    (when-not (toldval? rk) (tput! :oldvals rk rv))
+    (when-not (tcontains? :refs rk)
+      (tput! :refs ref))
+    (when-not (tcontains? :oldvals rk)
+      (tput! :oldvals rk rv))
     (tput! :tvals rk ret)
     (tput! :commutes rk cfn)
     ret))
@@ -127,7 +118,7 @@
   "Applies all ref's commutes starting with ref's oldval"
   [rk]
   (let [cfns (apply comp (tget :commutes rk))]
-    (cfns (oldval rk))))
+    (cfns (tget :oldvals rk))))
 
 (defn validate*
   "This is a clojure re-implementation of clojure.lang.ARef/validate because it cannot be accessed by subclasses. It is needed to invoke when changing ref state"
@@ -148,7 +139,7 @@
   "Validates all updatables given the latest tval"
   []
   (doseq [rk (updatables)]
-    (validate* (.getValidator (tget :refs rk)) (tval rk))))
+    (validate* (.getValidator (tget :refs rk)) (tget :tvals rk))))
 
 (defn commit
   "Returns:
@@ -159,13 +150,13 @@
   (if (<= retries 0)
     {:error :no-more-retries
      :retries retries}
-    (let [ensures (apply concat (map (fn [rk] [rk (oldval rk)]) (tget :ensures)))
-          updates (apply concat (map (fn [rk] [rk (oldval rk) (tval rk)]) (updatables)))
+    (let [ensures (apply concat (map (fn [rk] [rk (tget :oldvals rk)]) (tget :ensures)))
+          updates (apply concat (map (fn [rk] [rk (tget :oldvals rk) (tget :tvals rk)]) (updatables)))
           result (r/cas-multi-or-report (tconn) ensures updates)]
       (when-not (true? result)
-        (let [rks (map (fn [rk] (when (tcommuted? rk) rk)) result)]
+        (let [rks (map (fn [rk] (when (tcontains? :commutes rk) rk)) result)]
           (if (or (some nil? rks)
-                  (some identity (map (fn [rk] (when (or (tensured? rk) (tset? rk)) rk) ) rks)))
+                  (some identity (map (fn [rk] (when (or (tcontains? :ensures rk) (tcontains? :sets rk)) rk) ) rks)))
             {:error :stale-oldvals
              :retries retries}  ;; entire tx needs retry anything outside commute is stale
             (do
@@ -179,7 +170,7 @@
   "Validates all updatables given the latest oldval and latest tval"
   []
   (doseq [rk (updatables)]
-    (.notifyWatches (tget :refs rk) (oldval rk) (tval rk))))
+    (.notifyWatches (tget :refs rk) (tget :oldvals rk) (tget :tvals rk))))
 
 (defn dispatch-agents [] 42) ;; TODO: this at some point?
 

@@ -85,10 +85,8 @@
     (let [rk2 :do-ensure|k2
           rr2 (rr rk2 42)]
       (with-new-tx
-        ; (is (nil? (sut/tval rk2)))
         (sut/do-ensure rr2)
         (is (= rk2 (sut/tget :ensures rk2)))
-        ; (is (= 42 (sut/tval rk2)))
         ))))
 
 (deftest do-commute-test
@@ -102,17 +100,17 @@
           rr2 (rr rk2 42)]
       (with-new-tx
         (is (nil? (sut/tget :commutes rk2)) "Must not have rr2 commutes")
-        (is (nil? (sut/tval rk2)) "Must not have rr2 tvals")
+        (is (nil? (sut/tget :tvals rk2)) "Must not have rr2 tvals")
         (let [result1 (sut/do-commute rr2 + [58])
               commutes1 (sut/tget :commutes rk2)]
           (is (= 1 (count commutes1)))
           (is (= (sut/->CFn + [58]) (first commutes1)))
-          (is (= 100 result1 (sut/tval rk2)))
+          (is (= 100 result1 (sut/tget :tvals rk2)))
           (let [result2 (sut/do-commute rr2 - [30 3])
                 commutes2 (sut/tget :commutes rk2)]
             (is (= 2 (count commutes2)))
             (is (= (sut/->CFn - [30 3]) (second commutes2)))
-            (is (= 67 result2 (sut/tval rk2)))))))))
+            (is (= 67 result2 (sut/tget :tvals rk2)))))))))
 (deftest commit-test
   ;; Do redis/cas-multi-or-report first
   ;; also need to handle

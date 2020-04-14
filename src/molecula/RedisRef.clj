@@ -6,7 +6,7 @@
     (clojure.lang IFn ISeq Keyword))
   (:gen-class
     :name RedisRef
-    :extends clojure.lang.Ref ;; this actually needs to extend clojure.lang.Ref to work "with one line of code"
+    :extends clojure.lang.Ref
     :implements [
       clojure.lang.IFn
       java.lang.Comparable ;;-- perhaps I can do without? unclear, perhaps will need to make a method for this
@@ -34,26 +34,31 @@
 (defn -key [this] (:k (.state this)))
 (defn -conn [this] (:conn (.state this)))
 
-;; TODO? not sure if I should throw ref unbound ex here if no key on redis
-
 (defn -deref
   [this]
   (if-not (tx/running?)
     (r/deref* (.conn this) (.key this))
     (tx/do-get this)))
 
-(defn -set [this val] (tx/do-set this val))
+(defn -set
+  [this val]
+  (tx/throw-when-nil-t)
+  (tx/do-set this val))
 
 (defn -commute
   [this f args]
+  (tx/throw-when-nil-t)
   (tx/do-commute this f args))
 
 (defn -alter
   [this f args]
+  (tx/throw-when-nil-t)
   (tx/do-set this (apply f (tx/do-get this) args)))
-  ;; NOTE: ^ do-get watches on redis
 
-(defn -touch [this] (tx/do-ensure this))
+(defn -touch
+  [this]
+  (tx/throw-when-nil-t)
+  (tx/do-ensure this))
 
 ; (defn -trimHistory [this] (throw (NoSuchMethodException. "Not implemented")))
 ; (defn -getHistoryCount [this] (throw (NoSuchMethodException. "Not implemented")))
