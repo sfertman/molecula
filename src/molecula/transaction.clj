@@ -8,6 +8,9 @@
 (defn ex-set-after-commute [] (IllegalStateException. "Can't set after commute"))
 (defn ex-ref-unbound [ref] (IllegalStateException. (str ref " is unbound.")))
 ;; TODO: create errors namespace and put all ex-* fns there
+(defn ex-retry-limit [] ;; this is a function because I need a NEW exception at the point of failure
+  (RuntimeException. "Transaction failed after reaching retry limit"))
+;; ^^ should be clojure.lang.Util. runtimeException; having some trouble importing it
 
 (def ^:dynamic *t* nil)
 
@@ -29,12 +32,13 @@
 
 (defn running? [] (some? *t*))
 (defn throw-when-nil-t
+  "Throws IllegalStateException if *t* is nil. Returns nil otherwise.
+  This is equivalent to clojure.lang.LockingTransaction/getEx()
+  Used in RedisRef to guard methods from being called outside
+  transaction."
   []
-  (when (or (nil? *t*) #_(nil? (:info *t*))) ;; I'm not sure why I need info here but will keep the comment in case it does end up this way
+  (when (nil? *t*)
     (throw (IllegalStateException. "No transaction running"))))
-    ; Note: this should never actually happen and if it does then
-    ; something went terribly wrong and I should take a long hard
-    ; look at my code!
 
 (defn tconn [] (:conn *t*))
 
@@ -80,7 +84,7 @@
 
 (defn do-set
   [ref value]
-  (let [rk (.key ref)] ;; no need to test if tx running because will never be invoked outside tx unless user really wants to get weird
+  (let [rk (.key ref)]
     (when (tcontains? :commutes rk)
       (throw (ex-set-after-commute)))
     (when-not (tcontains? :refs rk)
@@ -89,7 +93,7 @@
       (tput! :oldvals rk (do-get ref)))
     (when-not (tcontains? :sets rk)
       (tput! :sets rk))
-    (tput! :tvals rk value) ;; put new val in tvals
+    (tput! :tvals rk value)
     value))
 
 (defn do-ensure
@@ -173,10 +177,6 @@
     (.notifyWatches (tget :refs rk) (tget :oldvals rk) (tget :tvals rk))))
 
 (defn dispatch-agents [] 42) ;; TODO: this at some point?
-
-(defn ex-retry-limit [] ;; this is a function because I need a NEW exception at the point of failure
-  (RuntimeException. "Transaction failed after reaching retry limit"))
-;; ^^ should be clojure.lang.Util. runtimeException; having some trouble importing it
 
 (defn run ;; TODO
   [^clojure.lang.IFn f]

@@ -40,7 +40,7 @@
 (deftest alter-test
 
 )
-#_(deftest test-examples
+(deftest test-examples
 
   ;; let's use https://www.braveclojure.com/zombie-metaphysics/ refs example and try to implement it using carmine before attmpting to abstract anything
 

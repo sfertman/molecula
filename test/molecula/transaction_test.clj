@@ -34,11 +34,6 @@
 ;; TODO: for the sake of completion write these tests
 
 (deftest do-get-test
-  #_(testing "do-get without tx"
-    (let [rr1 (rr :do-get|k1 42)]
-      (try (sut/do-get rr1)
-        (catch IllegalStateException e
-          (is (= "No transaction running" (.getMessage e)))))))
   (testing "do-get with tx"
     (let [rr2 (rr :do-get|k2 42)]
       (with-new-tx
@@ -52,11 +47,6 @@
   )
 )
 (deftest do-set-test
-  #_(testing "do-set without tx"
-    (let [rr1 (rr :do-set|k1 42)]
-      (try (sut/do-set rr1 43)
-        (catch IllegalStateException e
-          (is (= "No transaction running" (.getMessage e)))))))
   (testing "Should fail after commute"
     (let [rr2 (rr :do-set|k2 42)]
       (with-new-tx
@@ -76,11 +66,6 @@
       (is (= 42 @rr3) "dedo-set should not change redis val because we never committed!"))))
 
 (deftest do-ensure-test
-  #_(testing "do-ensure without tx"
-    (let [rr1 (rr :do-ensure|k1 42)]
-      (try (sut/do-ensure rr1)
-        (catch IllegalStateException e
-          (is (= "No transaction running" (.getMessage e)))))))
   (testing "do-ensure with tx"
     (let [rk2 :do-ensure|k2
           rr2 (rr rk2 42)]
@@ -90,11 +75,6 @@
         ))))
 
 (deftest do-commute-test
-  #_(testing "do-commute without tx"
-    (let [rr1 (rr :do-commute|k1 42)]
-      (try (sut/do-commute rr1 + [58])
-        (catch IllegalStateException e
-          (is (= "No transaction running" (.getMessage e)))))))
   (testing "do-commute with tx"
     (let [rk2 :do-commute|k2
           rr2 (rr rk2 42)]
@@ -118,6 +98,6 @@
   ;;  what happens when there's nothing ot update but something to ensure?
 
   (testing "No more retries")
-  )
+)
 (deftest run-test)
 (deftest run-in-transaction-test)
