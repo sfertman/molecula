@@ -1,6 +1,8 @@
 # molecula
 Clojure refs on redis with one line of code (experimental).
 
+[![Clojars Project](https://img.shields.io/clojars/v/molecula.svg)](https://clojars.org/molecula)
+
 require
 ```clojure
 (require '[molecula.core :as mol :refer [redis-ref]])
