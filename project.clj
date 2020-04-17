@@ -1,5 +1,5 @@
 (defproject molecula "0.1.0"
-  :description "Clojure refs on Redis"
+  :description "Clojure refs on Redis with one line of code"
   :license {
     :name "MIT"
     :url "https://opensource.org/licenses/mit-license.php"}
