@@ -178,14 +178,21 @@
 
 (defn dispatch-agents [] 42) ;; TODO: this at some point?
 
+(def RETRY_LIMIT 100)
+
 (defn run ;; TODO
   [^clojure.lang.IFn f]
-  (loop [retries 100] ;; TODO: add timeout
+  (loop [retries RETRY_LIMIT] ;; TODO: add timeout
     (when (<= retries 0)
       (throw (ex-retry-limit)))
-    (let [ret (f)] ;; add a try catch around this thing?
+    (let [ret (f)]
       (validate)
       (let [result (commit retries)]
+        ;; TODO: commit may change commuted refs
+        ;; make sure the expected behaviour is preserved.
+        ;; meaning: if the last expr in dosync is commute,
+        ;; and it's being changed in commit, which val do I
+        ;; need to return?
         (if (nil? result)
           (do
             (notify-watches)

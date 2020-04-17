@@ -91,13 +91,33 @@
             (is (= 2 (count commutes2)))
             (is (= (sut/->CFn - [30 3]) (second commutes2)))
             (is (= 67 result2 (sut/tget :tvals rk2)))))))))
+
 (deftest commit-test
   ;; Do redis/cas-multi-or-report first
   ;; also need to handle
   ;;  no updates case
   ;;  what happens when there's nothing ot update but something to ensure?
+  (testing "Should return no-more-retries when run out f retries"
+    (is (= {:error :no-more-retries :retries 0} (sut/commit 0))))
 
-  (testing "No more retries")
+  (testing "Should return stale-old-vals when sets are conflicting")
+
+  (testing "Should keep retrying commutes until running out of retries")
 )
-(deftest run-test)
-(deftest run-in-transaction-test)
+(deftest run-test
+  "Should throw ex-retry-limit is no more retries"
+
+  )
+
+(deftest run-in-transaction-test
+  (testing "Should run in tx when tx exists"
+    (with-tx {:tx "that-exists"}
+      (with-redefs [sut/run (fn [_] sut/*t*)]
+        (let [res (sut/run-in-transaction conn
+                    (fn [] (+ 1 1) (* 2 2)))]
+          (is (= {:tx "that-exists" :conn conn} res))))))
+  (testing "Should create new tx if not in tx")
+    (with-redefs [sut/run (fn [_] sut/*t*)]
+      (let [res (sut/run-in-transaction conn
+                  (fn [] (+ 1 1) (* 2 2)))]
+        (is (= (sut/->transaction conn) res)))))
