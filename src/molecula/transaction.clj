@@ -16,10 +16,8 @@
 
 (defrecord CFn [f args]
   IFn
-    (invoke [this oldval] (apply (:f this) oldval (:args this))))
+    (invoke [this oldval] (apply (.f this) oldval (.args this))))
 
-;; hmm... most times we need to update more than one key in *t*; could I use a bunch of actual clojure refs for this?
-;; Could be pretty fun but not sure if necessary because everything is going to be happening on a single thread
 (defn ->transaction [conn] {
   :conn conn
   :refs {}
@@ -171,7 +169,7 @@
               (recur (dec retries))))))))) ;; retry commit
 
 (defn notify-watches
-  "Validates all updatables given the latest oldval and latest tval"
+  "Notifies watches on all updatables given the latest oldval and latest tval"
   []
   (doseq [rk (updatables)]
     (.notifyWatches (tget :refs rk) (tget :oldvals rk) (tget :tvals rk))))
@@ -201,7 +199,7 @@
           (= :no-more-retries (:error result))
             (throw (ex-retry-limit))
           (= :stale-oldvals (:error result))
-            (recur (dec retries))))))))
+            (recur (dec (:retries result)))))))))
 
 (defn run-in-transaction
   [conn ^clojure.lang.IFn f]
