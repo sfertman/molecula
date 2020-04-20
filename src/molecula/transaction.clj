@@ -149,6 +149,9 @@
   - an error \"object\" if anything went wrong"
   [retries]
   ;; TODO: this needs to handle the case when there is nothing to commit
+  ;; and what exactly should it do when there's mothing to commit?
+  ;; should return nil without cas
+  ;; but, if there's an ensure then we need to ensure that oldval did not change
   (if (<= retries 0)
     {:error :no-more-retries
      :retries retries}
@@ -156,17 +159,16 @@
           updates (apply concat (map (fn [rk] [rk (tget :oldvals rk) (tget :tvals rk)]) (updatables)))
           result (r/cas-multi-or-report (tconn) ensures updates)]
       (when-not (true? result)
-        (let [rks (map (fn [rk] (when (tcontains? :commutes rk) rk)) result)]
-          (if (or (some nil? rks)
-                  (some identity (map (fn [rk] (when (or (tcontains? :ensures rk) (tcontains? :sets rk)) rk) ) rks)))
-            {:error :stale-oldvals
-             :retries retries}  ;; entire tx needs retry anything outside commute is stale
-            (do
-              (doseq [rk rks
-                      rv (r/deref-multi (tconn) rks)]
-                (tput! :oldvals rk rv) ;; refresh oldvals
-                (tput! :tvals rk (commute-ref rk))) ;; recalculate commutes only
-              (recur (dec retries))))))))) ;; retry commit
+        (if (seq (filter #(or (tcontains? :sets %)
+                              (tcontains? :ensures %)) result))
+          {:error :stale-oldvals
+            :retries retries}  ;; entire tx needs retry anything outside commute is stale
+          (do ;; else, assume all conflicts are commutes
+            (doseq [rk result
+                    rv (r/deref-multi (tconn) result)]
+              (tput! :oldvals rk rv) ;; refresh oldvals
+              (tput! :tvals rk (commute-ref rk))) ;; recalculate commutes only
+            (recur (dec retries)))))))) ;; retry commit
 
 (defn notify-watches
   "Notifies watches on all updatables given the latest oldval and latest tval"

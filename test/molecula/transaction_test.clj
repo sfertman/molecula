@@ -3,6 +3,7 @@
     [clojure.test :refer :all]
     [molecula.common-test :refer [conn rr]]
     [molecula.core :refer [redis-ref]]
+    [molecula.redis :as r]
     [molecula.transaction :as sut]))
 
 (defmacro with-tx [t & body]
@@ -100,9 +101,46 @@
   (testing "Should return no-more-retries when run out f retries"
     (is (= {:error :no-more-retries :retries 0} (sut/commit 0))))
 
-  (testing "Should return stale-old-vals when sets are conflicting")
+  (testing "Should return stale-old-vals when sets are conflicting"
+    (let [rk1 :commit1|k1
+          rk2 :commit1|k2
+          rk3 :commit1|k3]
+      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+        (with-tx {:conn conn :sets #{rk1 rk2 rk3}}
+          (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
+      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+        (with-tx {:conn conn :sets #{rk1 rk2 rk3} :commutes {rk1 [:stuff]}}
+          (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
+      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+        (with-tx {:conn conn :sets #{rk1 rk2 rk3} :ensures #{rk1}}
+          (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))))
 
-  (testing "Should keep retrying commutes until running out of retries")
+  (testing "Should return stale-old-vals when ensures are conflicting"
+    (let [rk1 :commit2|k1
+          rk2 :commit2|k2
+          rk3 :commit2|k3]
+      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+        (with-tx {:conn conn :ensures #{rk1 rk2 rk3}}
+          (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
+      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+        (with-tx {:conn conn :ensures #{rk1 rk2 rk3} :commutes {rk1 [:stuff]}}
+          (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
+      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+        (with-tx {:conn conn :ensures #{rk1 rk2 rk3} :sets #{rk1}}
+          (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))))
+  (testing "Should retry conflicting commutes"
+    (let [rk1 :commit3|k1
+          rk2 :commit3|k2
+          rk3 :commit3|k3]
+      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+        (with-tx {:conn conn :commutes {rk1 [:stuff]}}
+          (is (= {:error :no-more-retries :retries 0} (sut/commit 1)))))
+      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+        (with-tx {:conn conn :commutes {rk1 [:stuff]} :ensures #{rk2 rk3}}
+          (is (= {:error :no-more-retries :retries 0} (sut/commit 1)))))
+      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+        (with-tx {:conn conn :commutes {rk1 [:stuff]} :ensures #{rk2} :sets #{rk2 rk3}}
+          (is (= {:error :no-more-retries :retries 0} (sut/commit 1)))))))
 )
 (deftest run-test
   "Should throw ex-retry-limit is no more retries"
