@@ -76,7 +76,7 @@
     (if (tcontains? :tvals rk)
       (tget :tvals rk)
       (let [redis-val (r/deref* (tconn) rk)]
-        (when (= {:mol-redis-errr :ref-key-nx} redis-val)
+        (when (= {:mol-redis-err :ref-key-nx} redis-val)
           (throw (ex-ref-unbound ref)))
         redis-val))))
 

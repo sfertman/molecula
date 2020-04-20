@@ -6,7 +6,7 @@
 (defn deref* [conn k]
   (if-let [redis-val (r/wcar conn (r/get k))]
     (:data redis-val)
-    {:mol-redis-errr :ref-key-nx}))
+    {:mol-redis-err :ref-key-nx}))
 
 (defn setnx* [conn k newval] (r/wcar conn (r/setnx k {:data newval})))
 

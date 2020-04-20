@@ -1,10 +1,11 @@
 (ns molecula.transaction-test
   (:require
     [clojure.test :refer :all]
-    [molecula.common-test :refer [conn rr]]
+    [molecula.common-test :refer [conn rr wcar*]]
     [molecula.core :refer [redis-ref]]
     [molecula.redis :as r]
-    [molecula.transaction :as sut]))
+    [molecula.transaction :as sut]
+    [taoensso.carmine :as redis]))
 
 (defmacro with-tx [t & body]
   `(binding [sut/*t* (assoc ~t :conn conn)] ~@body))
@@ -36,17 +37,22 @@
 
 (deftest do-get-test
   (testing "do-get with tx"
-    (let [rr2 (rr :do-get|k2 42)]
+    (let [rr1 (rr :do-get1|k1 42)]
       (with-new-tx
-        (is (= 42 (sut/do-get rr2))) ;; first do-get fetches from redis
-        (is (= 42 (sut/do-get rr2))) ;; second do-get fetches from redis again
-        (set! sut/*t* (update sut/*t* :tvals assoc :do-get|k2 "fake-update"))
+        (is (= 42 (sut/do-get rr1))) ;; first do-get fetches from redis
+        (is (= 42 (sut/do-get rr1))) ;; second do-get fetches from redis again
+        (set! sut/*t* (update sut/*t* :tvals assoc :do-get1|k1 "fake-update"))
         ;; ^ puts some fake data in :tvals for this ref
-        (is (= "fake-update" (sut/do-get rr2)))))) ;; third do-get fetches from tval because now it is set within tx
+        (is (= "fake-update" (sut/do-get rr1)))))) ;; third do-get fetches from tval because now it is set within tx
   (testing "do-get ref-unbound"
-    ; TODO
-  )
-)
+    (let [rk1 :do-get2|k1
+          rr1 (rr rk1 42)]
+      (wcar* (redis/del rk1))
+      (with-new-tx
+        (try
+          (sut/do-get rr1)
+          (catch IllegalStateException e
+            (is (= (str rr1 " is unbound.") (.getMessage e)))))))))
 (deftest do-set-test
   (testing "Should fail after commute"
     (let [rr2 (rr :do-set|k2 42)]
