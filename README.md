@@ -2,6 +2,7 @@
 Clojure refs on redis with one line of code (experimental).
 
 [![Clojars Project](https://img.shields.io/clojars/v/molecula.svg)](https://clojars.org/molecula)
+![Clojure CI](https://github.com/sfertman/molecula/workflows/Clojure%20CI/badge.svg?branch=master)
 
 require
 ```clojure
