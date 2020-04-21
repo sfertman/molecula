@@ -23,28 +23,28 @@
 
 (deftest set-multi!-test
   (testing "Set 1 kv"
-    (sut/set-multi! conn [:set-multi|k11 42])
-    (is (= [{:data 42}] (wcar* (redis/mget :set-multi|k11))))
-    (sut/set-multi! conn [:set-multi|k12] [42])
-    (is (= [{:data 42}] (wcar* (redis/mget :set-multi|k12)))))
+    (sut/set-multi! conn [:set-multi1|k1 42])
+    (is (= [{:data 42}] (wcar* (redis/mget :set-multi1|k1))))
+    (sut/set-multi! conn [:set-multi1|k2] [42])
+    (is (= [{:data 42}] (wcar* (redis/mget :set-multi1|k2)))))
   (testing "Set 3 kvs"
     (sut/set-multi!
       conn
-      [:set-multi|k31 42
-       :set-multi|k32 43
-       :set-multi|k33 44])
+      [:set-multi3|k1 42
+       :set-multi3|k2 43
+       :set-multi3|k3 44])
     (is (= (map #(hash-map :data %) [42 43 44])
-           (wcar* (redis/mget :set-multi|k31
-                              :set-multi|k32
-                              :set-multi|k33))))
+           (wcar* (redis/mget :set-multi3|k1
+                              :set-multi3|k2
+                              :set-multi3|k3))))
     (sut/set-multi!
       conn
-      [:set-multi|k31 :set-multi|k32 :set-multi|k33]
+      [:set-multi3|k1 :set-multi3|k2 :set-multi3|k3]
       [42 43 44])
     (is (= (map #(hash-map :data %) [42 43 44])
-           (wcar* (redis/mget :set-multi|k31
-                              :set-multi|k32
-                              :set-multi|k33))))))
+           (wcar* (redis/mget :set-multi3|k1
+                              :set-multi3|k2
+                              :set-multi3|k3))))))
 (deftest conflicts-test
   (let [rk1 :conflicts|k1
         rk2 :conflicts|k2
