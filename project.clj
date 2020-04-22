@@ -1,4 +1,4 @@
-(defproject molecula "0.1.1"
+(defproject molecula "0.1.2"
   :description "Clojure refs on Redis with one line of code"
   :license {
     :name "MIT"
