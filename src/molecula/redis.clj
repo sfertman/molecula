@@ -59,24 +59,30 @@
   TODO: figure out a way to fail a transaction that takes too long
   TODO(ocd): optimize let difinitions
   "
-  [conn ensures updates]
-  (let [eks (take-nth 3 ensures) ;; ensure keys
-        eov (take-nth 3 (drop 1 ensures)) ;; oldvals to ensure
-        uks (take-nth 3 updates) ;; update keys
-        uov (take-nth 3 (drop 1 updates)) ;; oldvals to update
-        unv (take-nth 3 (drop 2 updates)) ;; newvals for update
-        ks (concat eks uks) ;; all keys to watch while comparing
-        ovs (concat eov uov)] ;; all oldvals to compare
-    (r/wcar conn (apply r/watch ks))
-    (let [cf (conflicts conn ks ovs)]
-      (if (seq cf)
-        (do (r/wcar conn (r/unwatch))
-            cf)
-        (if (nil? (multi-exec conn (set-multi! conn uks unv)))
-          (if-let [cf (seq (conflicts conn ks ovs))]
-            cf
-            false) ;; return what changed while trying multi-exec
-          true)))))
+  ([conn ensures]
+    (let [eks (take-nth 2 ensures)
+          eov (take-nth 2 (drop 1 ensures))]
+      (if-let [cf (seq (conflicts conn eks eov))]
+        cf
+        true)))
+  ([conn ensures updates]
+    (let [eks (take-nth 2 ensures) ;; ensure keys
+          eov (take-nth 2 (drop 1 ensures)) ;; oldvals to ensure
+          uks (take-nth 3 updates) ;; update keys
+          uov (take-nth 3 (drop 1 updates)) ;; oldvals to update
+          unv (take-nth 3 (drop 2 updates)) ;; newvals for update
+          ks (concat eks uks) ;; all keys to watch while comparing
+          ovs (concat eov uov)] ;; all oldvals to compare
+      (r/wcar conn (apply r/watch ks))
+      (let [cf (conflicts conn ks ovs)] ;; if-let [cf (seq (conflicts ...))]
+        (if (seq cf)
+          (do (r/wcar conn (r/unwatch))
+              cf)
+          (if (nil? (multi-exec conn (set-multi! conn uks unv)))
+            (if-let [cf (seq (conflicts conn ks ovs))]
+              cf
+              false) ;; return what changed while trying multi-exec
+            true))))))
 
 
 (defn mcas-or-report
