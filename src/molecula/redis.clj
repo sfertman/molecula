@@ -74,15 +74,14 @@
           ks (concat eks uks) ;; all keys to watch while comparing
           ovs (concat eov uov)] ;; all oldvals to compare
       (r/wcar conn (apply r/watch ks))
-      (let [cf (conflicts conn ks ovs)] ;; if-let [cf (seq (conflicts ...))]
-        (if (seq cf)
-          (do (r/wcar conn (r/unwatch))
-              cf)
-          (if (nil? (multi-exec conn (set-multi! conn uks unv)))
-            (if-let [cf (seq (conflicts conn ks ovs))]
-              cf
-              false) ;; return what changed while trying multi-exec
-            true))))))
+      (if-let [cf (seq (conflicts conn ks ovs))]
+        (do (r/wcar conn (r/unwatch))
+            cf)
+        (if (nil? (multi-exec conn (set-multi! conn uks unv)))
+          (if-let [cf (seq (conflicts conn ks ovs))]
+            cf  ;; return what changed while trying multi-exec
+            false) ;; something made multi-exec fail and it wasn't conflicts
+          true)))))
 
 
 (defn mcas-or-report
