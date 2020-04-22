@@ -64,7 +64,11 @@
           eov (take-nth 2 (drop 1 ensures))]
       (if-let [cf (seq (conflicts conn eks eov))]
         cf
-        true)))
+        true)));; TODO: actually, tx/commit should handle this case; mcas is for comparing and setting things
+        ;; mcas whould have the followin signature:
+        ;; (defn mcas
+        ;;   ([conn updates] 42)
+        ;;   ([conn ensures updates] 43))
   ([conn ensures updates]
     (let [eks (take-nth 2 ensures) ;; ensure keys
           eov (take-nth 2 (drop 1 ensures)) ;; oldvals to ensure
