@@ -18,3 +18,4 @@ pom.xml.asc
 .project
 .vscode/
 .rebel_readline_history
+.java-version
