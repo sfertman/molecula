@@ -14,19 +14,25 @@ jobs:
     services:
       redis:
         image: redis:alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
         ports:
           - 6379:6379
     steps:
     - name: Check out repository code
       uses: actions/checkout@v2
-      
+
+    - name: Cache clojure deps
+      uses: actions/cache@v1
+      id: cache-deps
+      with:
+        path: ~/.m2/repository
+        key: ${{ hashFiles('project.clj') }}
+
     - name: Install dependencies
+      if: steps.cache-deps.outputs.cache-hit != 'true'
       run: lein deps
-      
+
+    - name: ls deps
+      run: ls -alh ~/.m2/repository
+
     - name: Run tests
       run: lein test
