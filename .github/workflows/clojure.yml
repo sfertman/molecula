@@ -31,8 +31,5 @@ jobs:
       if: steps.cache-deps.outputs.cache-hit != 'true'
       run: lein deps
 
-    - name: ls deps
-      run: ls -alh ~/.m2/repository
-
     - name: Run tests
       run: lein test
