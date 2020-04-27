@@ -64,6 +64,7 @@
             (is (= "Can't set after commute" (.getMessage e)))))
         (is (= 42 @rr2) "do-set should fail to change to new value"))
       (is (= 42 @rr2) "do-set should not change redis val")))
+  ;; TODO: more granular tests!
   (testing "do-set with tx"
     (let [rr3 (rr :do-set|k3 42)]
       (with-new-tx
@@ -73,7 +74,9 @@
       (is (= 42 @rr3) "dedo-set should not change redis val because we never committed!"))))
 
 (deftest do-ensure-test
-  (testing "do-ensure with tx"
+  (testing "Should update oldvals with redis value when this is the first time we touch this ref")
+  (testing "Should update ensures when new ensure")
+  (testing "do-ensure with tx" ;; this is fine but not granular enough
     (let [rk2 :do-ensure|k2
           rr2 (rr rk2 42)]
       (with-new-tx
@@ -82,6 +85,8 @@
         ))))
 
 (deftest do-commute-test
+  ;; TODO: more tests
+
   (testing "do-commute with tx"
     (let [rk2 :do-commute|k2
           rr2 (rr rk2 42)]
@@ -99,58 +104,90 @@
             (is (= (sut/->CFn - [30 3]) (second commutes2)))
             (is (= 67 result2 (sut/tget :tvals rk2)))))))))
 
+
+(deftest validate-test
+  (testing "Should validate given keys")
+  (testing "Should validate updatables if no inputs given")
+  (testing "Should throw 'Invalid reference state' on validation failure")
+)
+
 (deftest commit-test
-  ;; Do redis/cas-multi-or-report first
-  ;; also need to handle
-  ;;  no updates case
-  ;;  what happens when there's nothing ot update but something to ensure?
   (testing "Should return no-more-retries when run out f retries"
     (is (= {:error :no-more-retries :retries 0} (sut/commit 0))))
-
   (testing "Should return stale-old-vals when sets are conflicting"
-    (let [rk1 :commit1|k1
-          rk2 :commit1|k2
-          rk3 :commit1|k3]
+    (let [rk1 :commit1|k1 rr1 (rr rk1)
+          rk2 :commit1|k2 rr2 (rr rk2)
+          rk3 :commit1|k3 rr3 (rr rk3)
+          refs (zipmap [rk1 rk2 rk3] [rr1 rr2 rr3])]
       (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
-        (with-tx {:conn conn :sets #{rk1 rk2 rk3}}
+        (with-tx {:conn conn :sets #{rk1 rk2 rk3} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
       (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
-        (with-tx {:conn conn :sets #{rk1 rk2 rk3} :commutes {rk1 [:stuff]}}
+        (with-tx {:conn conn :sets #{rk1 rk2 rk3} :commutes {rk1 [:stuff]} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
       (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
-        (with-tx {:conn conn :sets #{rk1 rk2 rk3} :ensures #{rk1}}
+        (with-tx {:conn conn :sets #{rk1 rk2 rk3} :ensures #{rk1} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))))
-
   (testing "Should return stale-old-vals when ensures are conflicting"
-    (let [rk1 :commit2|k1
-          rk2 :commit2|k2
-          rk3 :commit2|k3]
+    (let [rk1 :commit1|k1 rr1 (rr rk1)
+          rk2 :commit1|k2 rr2 (rr rk2)
+          rk3 :commit1|k3 rr3 (rr rk3)
+          refs (zipmap [rk1 rk2 rk3] [rr1 rr2 rr3])]
       (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
-        (with-tx {:conn conn :ensures #{rk1 rk2 rk3}}
+        (with-tx {:conn conn :ensures #{rk1 rk2 rk3}  :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
       (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
-        (with-tx {:conn conn :ensures #{rk1 rk2 rk3} :commutes {rk1 [:stuff]}}
+        (with-tx {:conn conn :ensures #{rk1 rk2 rk3} :commutes {rk1 [:stuff]} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
       (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
-        (with-tx {:conn conn :ensures #{rk1 rk2 rk3} :sets #{rk1}}
+        (with-tx {:conn conn :ensures #{rk1 rk2 rk3} :sets #{rk1} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))))
   (testing "Should retry conflicting commutes"
-    (let [rk1 :commit3|k1
-          rk2 :commit3|k2
-          rk3 :commit3|k3]
+    (let [rk1 :commit3|k1 rr1 (rr rk1)
+          rk2 :commit3|k2 rr2 (rr rk2)
+          rk3 :commit3|k3 rr3 (rr rk3)
+          refs (zipmap [rk1 rk2 rk3] [rr1 rr2 rr3])]
       (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
-        (with-tx {:conn conn :commutes {rk1 [:stuff]}}
+        (with-tx {:conn conn :commutes {rk1 [:stuff]} :refs refs}
           (is (= {:error :no-more-retries :retries 0} (sut/commit 1)))))
       (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
-        (with-tx {:conn conn :commutes {rk1 [:stuff]} :ensures #{rk2 rk3}}
+        (with-tx {:conn conn :commutes {rk1 [:stuff]} :ensures #{rk2 rk3} :refs refs}
           (is (= {:error :no-more-retries :retries 0} (sut/commit 1)))))
       (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
-        (with-tx {:conn conn :commutes {rk1 [:stuff]} :ensures #{rk2} :sets #{rk2 rk3}}
+        (with-tx {:conn conn :commutes {rk1 [:stuff]} :ensures #{rk2} :sets #{rk2 rk3} :refs refs}
           (is (= {:error :no-more-retries :retries 0} (sut/commit 1)))))))
+  (testing "Should validate retried commutes") ;; TODO
 )
-(deftest run-test
-  "Should throw ex-retry-limit is no more retries"
 
+
+
+(deftest notify-watches-test)
+
+(deftest run-test
+  (testing "Should throw ex/retry-limit if no transaction retries left"
+    (with-redefs [sut/RETRY_LIMIT 0]
+      (try
+        (sut/run (fn [] 42))
+        (catch RuntimeException re
+          (is (= "Transaction failed after reaching retry limit" (.getMessage re)))))))
+
+  #_(testing "TODO: Should throw ex/timeout if not transaction timeout exceeded"
+    )
+  (testing "Should validate all ref values after f is called"
+
+    )
+  (testing "Should commit ref updates"
+    )
+  (testing "Should notify watches"
+    )
+  (testing "Should return result of (f)"
+    )
+  (testing "Should throw ex/retry-limit when commit fails with :no-more-retries"
+    )
+  #_(testing "TODO: Should throw ex/timeout when commit fails with :operation-timed-out"
+    )
+  (testing "Should retry transaction when commit fails with :stale-oldvals"
+    )
   )
 
 (deftest run-in-transaction-test
@@ -160,8 +197,8 @@
         (let [res (sut/run-in-transaction conn
                     (fn [] (+ 1 1) (* 2 2)))]
           (is (= {:tx "that-exists" :conn conn} res))))))
-  (testing "Should create new tx if not in tx")
+  (testing "Should create new tx if not in tx"
     (with-redefs [sut/run (fn [_] sut/*t*)]
       (let [res (sut/run-in-transaction conn
                   (fn [] (+ 1 1) (* 2 2)))]
-        (is (= (sut/->transaction conn) res)))))
+        (is (= (sut/->transaction conn) res))))))

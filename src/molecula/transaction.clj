@@ -1,16 +1,10 @@
 (ns molecula.transaction
   (:require
-    [molecula.redis :as r])
+    [molecula.redis :as r]
+    [molecula.error :as ex])
   (:import
-    (clojure.lang IFn ISeq)
-    #_(clojure.lang.Util runtimeException)))
+    (clojure.lang IFn ISeq)))
 
-(defn ex-set-after-commute [] (IllegalStateException. "Can't set after commute"))
-(defn ex-ref-unbound [ref] (IllegalStateException. (str ref " is unbound.")))
-;; TODO: create errors namespace and put all ex-* fns there
-(defn ex-retry-limit [] ;; this is a function because I need a NEW exception at the point of failure
-  (RuntimeException. "Transaction failed after reaching retry limit"))
-;; ^^ should be clojure.lang.Util. runtimeException; having some trouble importing it
 
 (def ^:dynamic *t* nil)
 
@@ -77,14 +71,14 @@
       (tget :tvals rk)
       (let [redis-val (r/deref* (tconn) rk)]
         (when (= {:mol-redis-err :ref-key-nx} redis-val)
-          (throw (ex-ref-unbound ref)))
+          (throw (ex/ref-unbound ref)))
         redis-val))))
 
 (defn do-set
   [ref value]
   (let [rk (.key ref)]
     (when (tcontains? :commutes rk)
-      (throw (ex-set-after-commute)))
+      (throw (ex/set-after-commute)))
     (when-not (tcontains? :refs rk)
       (tput! :refs ref))
     (when-not (tcontains? :oldvals rk)
@@ -139,9 +133,10 @@
 
 (defn validate
   "Validates all updatables given the latest tval"
-  []
-  (doseq [rk (updatables)]
-    (validate* (.getValidator (tget :refs rk)) (tget :tvals rk))))
+  ([] (validate (updatables)))
+  ([rks]
+    (doseq [rk rks]
+      (validate* (.getValidator (tget :refs rk)) (tget :tvals rk)))))
 
 (defn commit
   "Returns:
@@ -158,6 +153,7 @@
     (let [ensures (apply concat (map (fn [rk] [rk (tget :oldvals rk)]) (tget :ensures)))
           updates (apply concat (map (fn [rk] [rk (tget :oldvals rk) (tget :tvals rk)]) (updatables)))
           result (r/cas-multi-or-report (tconn) ensures updates)]
+          ;; TODO: maybe find better name for this result
       (when-not (true? result)
         (if (seq (filter #(or (tcontains? :sets %)
                               (tcontains? :ensures %)) result))
@@ -168,40 +164,37 @@
                     rv (r/deref-multi (tconn) result)]
               (tput! :oldvals rk rv) ;; refresh oldvals
               (tput! :tvals rk (commute-ref rk))) ;; recalculate commutes only
+            (validate result)
             (recur (dec retries)))))))) ;; retry commit
 
 (defn notify-watches
   "Notifies watches on all updatables given the latest oldval and latest tval"
-  []
-  (doseq [rk (updatables)]
-    (.notifyWatches (tget :refs rk) (tget :oldvals rk) (tget :tvals rk))))
+  ([] (notify-watches (updatables)))
+  ([rks]
+    (doseq [rk rks]
+      (.notifyWatches (tget :refs rk) (tget :oldvals rk) (tget :tvals rk)))))
 
 (defn dispatch-agents [] 42) ;; TODO: this at some point?
 
-(def RETRY_LIMIT 100)
+(def RETRY_LIMIT 10000)
 
 (defn run ;; TODO
   [^clojure.lang.IFn f]
   (loop [retries RETRY_LIMIT] ;; TODO: add timeout
     (when (<= retries 0)
-      (throw (ex-retry-limit)))
+      (throw (ex/retry-limit)))
     (let [ret (f)]
       (validate)
       (let [result (commit retries)]
-        ;; TODO: commit may change commuted refs
-        ;; make sure the expected behaviour is preserved.
-        ;; meaning: if the last expr in dosync is commute,
-        ;; and it's being changed in commit, which val do I
-        ;; need to return?
         (if (nil? result)
           (do
             (notify-watches)
             ret)
-        (cond
-          (= :no-more-retries (:error result))
-            (throw (ex-retry-limit))
-          (= :stale-oldvals (:error result))
-            (recur (dec (:retries result)))))))))
+          (cond
+            (= :no-more-retries (:error result))
+              (throw (ex/retry-limit))
+            (= :stale-oldvals (:error result))
+              (recur (dec (:retries result)))))))))
 
 (defn run-in-transaction
   [conn ^clojure.lang.IFn f]

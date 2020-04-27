@@ -36,10 +36,33 @@
 
  """)
 
+;; Unit
+(deftest dosync-test
+  (testing "Should run input expressions in a trnsaction")
+  (testing "Should start a new transaction if none is runnign on this thread")
+  (testing "Should throw on any uncaught exceptions"))
 
-(deftest alter-test
+(deftest redis-ref-test
+  (testing "Should return a RedisRef object from RedisAtom")
+  (testing "Should return a RedisRef object without any update to backend when given conn and k")
+  (testing "Should return a RedisRef object and SET key/value on backend when given conn, k and val and key DOES NOT EXIST on backend")
+  (testing "Should return a RedisRef object and NOT SET key/value on backend when given conn, k and val and key EXISTS on backend")
+  (testing "Should return a RedisRef object with validator and/or meta when given")
 
-)
+  )
+
+
+;; Mothods
+(deftest deref-test)
+(deftest ref-set-test)
+(deftest commute-test)
+(deftest alter-test)
+(deftest ensure-test)
+
+;; Integration
+(deftest integration-test)
+
+
 (deftest test-examples
 
   ;; let's use https://www.braveclojure.com/zombie-metaphysics/ refs example and try to implement it using carmine before attmpting to abstract anything
