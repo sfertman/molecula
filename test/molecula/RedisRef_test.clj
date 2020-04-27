@@ -1,10 +1,10 @@
 (ns molecula.RedisRef-test
   (:require
     [clojure.test :refer :all]
-    [molecula.common-test :as ct :refer [rr mds flushall]]
+    [molecula.common-test :refer :all]
     [molecula.transaction :as tx]
     [molecula.RedisRef]
-    ))
+    [molecula.redis :as r]))
 
 (flushall)
 
@@ -15,26 +15,22 @@
 
 (deftest -deref-test
   (testing "Should return redis value when called outside transaction"
-    (let [r1 (rr :deref|r1 42 )]
-      (is (= 42 @r1)))
-    (let [r2 (rr :deref|r2 {:k 42})]
-      (is (= {:k 42} @r2))))
-  (testing "Shoud return transaction when called inside transaction"
-    (let [r3 (rr :deref|r3 42)]
-      (prn "REDIS-REF R3" r3)
-      (prn "@r3 is" @r3)
+    (let [rr1 (rr :deref1|k1 42 )]
+      (is (= 42 @rr1)))
+    (let [rr2 (rr :deref1|k2 {:k 42})]
+      (is (= {:k 42} @rr2))))
+  (testing "Shoud return transaction value when called inside transaction"
+    (let [rk1 :deref2|k1
+          rr1 (rr rk1 42)]
+      (is (= 42 @rr1))
       (mds
-        (prn "REDIS-REF inside-tx" r3)
-        (prn "@r3 is" @r3)
-        (clojure.pprint/pprint tx/*t*)
-        (alter r3 inc)
-        (prn "after inc @r3 is" @r3)
-        (is (= 43 @r3))))))
+        (alter rr1 inc)
+        (is (= 43 @rr1) "Value within transaction has changed")
+        (is (= 42 (r/deref* conn rk1)) "Value on redis is still the old one before transaction commited"))
+      (is (= 43 @rr1) "Value on redis is the new value once transaction is done"))))
 
 (deftest -set-test
-  (let [rr (RedisRef. {} )])
-  (testing "Can only be called in transaction"
-    (sut/-set {} ))
+  (testing "Can only be called in transaction")
   (testing "Should do-set")
 )
 (deftest -commute-test)
