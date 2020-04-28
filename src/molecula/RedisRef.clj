@@ -12,7 +12,7 @@
       java.lang.Comparable ;;-- perhaps I can do without? unclear, perhaps will need to make a method for this
       ; clojure.lang.IRef
     ]
-    :methods [ ;; this is needed because we're implementing new methods that are not part of the abstract class or interfaces.
+    :methods [
       [key [] clojure.lang.Keyword]
       [conn [] clojure.lang.PersistentArrayMap]]
     :state state
@@ -30,6 +30,9 @@
     [[initVal] {:conn conn :k (keyword k)}])
   ([conn k initVal meta]
     [[initVal meta] {:conn conn :k (keyword k)}]))
+  ;; NOTE: I don't care about initVal; it is here only to
+  ;; satisfy super(...). The real initial value of redis-ref
+  ;; is on redis and is set molecula.core/redis-ref
 
 (defn -key [this] (:k (.state this)))
 (defn -conn [this] (:conn (.state this)))

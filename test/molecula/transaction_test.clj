@@ -3,6 +3,7 @@
     [clojure.test :refer :all]
     [molecula.common-test :refer [conn rr wcar*]]
     [molecula.core :refer [redis-ref]]
+    [molecula.error :as ex]
     [molecula.redis :as r]
     [molecula.transaction :as sut]
     [taoensso.carmine :as redis]))
@@ -17,7 +18,7 @@
   (testing "throw when no tx running"
     (try (sut/tconn)
       (catch IllegalStateException e
-        (is (= "No transaction running" (.getMessage e))))))
+        (is (= (.getMessage (ex/no-transaction)) (.getMessage e))))))
   (testing "get conn in tx"
     (with-new-tx (is (= conn (sut/tconn))))))
 
@@ -52,7 +53,7 @@
         (try
           (sut/do-get rr1)
           (catch IllegalStateException e
-            (is (= (str rr1 " is unbound.") (.getMessage e)))))))))
+            (is (= (.getMessage (ex/ref-unbound rr1)) (.getMessage e)))))))))
 (deftest do-set-test
   (testing "Should fail after commute"
     (let [rr2 (rr :do-set|k2 42)]
@@ -61,7 +62,7 @@
         (try
           (sut/do-set rr2 43)
           (catch IllegalStateException e
-            (is (= "Can't set after commute" (.getMessage e)))))
+            (is (= (.getMessage (ex/set-after-commute)) (.getMessage e)))))
         (is (= 42 @rr2) "do-set should fail to change to new value"))
       (is (= 42 @rr2) "do-set should not change redis val")))
   ;; TODO: more granular tests!
@@ -169,7 +170,7 @@
       (try
         (sut/run (fn [] 42))
         (catch RuntimeException re
-          (is (= "Transaction failed after reaching retry limit" (.getMessage re)))))))
+          (is (= (.getMessage (ex/retry-limit)) (.getMessage re)))))))
 
   #_(testing "TODO: Should throw ex/timeout if not transaction timeout exceeded"
     )

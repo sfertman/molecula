@@ -30,7 +30,7 @@
   transaction."
   []
   (when (nil? *t*)
-    (throw (IllegalStateException. "No transaction running"))))
+    (throw (ex/no-transaction))))
 
 (defn tconn [] (:conn *t*))
 
@@ -121,11 +121,11 @@
   [^clojure.lang.IFn vf val]
   (try
     (if (and (some? vf) (not (vf val)))
-      (throw (IllegalStateException. "Invalid reference state")))
+      (throw (ex/invalid-ref-state)))
     (catch RuntimeException re
       (throw re))
     (catch Exception e
-      (throw (IllegalStateException. "Invalid reference state" e)))))
+      (throw (ex/invalid-ref-state e)))))
 
 (defn updatables
   "Returns a set of refs that have been altered or commuted"
