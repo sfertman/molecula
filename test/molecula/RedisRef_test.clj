@@ -27,42 +27,57 @@
     (is (= conn (.conn rr1)))))
 
 (deftest -deref-test
-  ;; TODO: this test should be in core because it's testing integration stuff
   (testing "Should return redis value when called outside transaction"
-    (let [rr1 (rr :deref1|k1 42 )]
-      (is (= 42 @rr1)))
-    (let [rr2 (rr :deref1|k2 {:k 42})]
-      (is (= {:k 42} @rr2))))
-  (testing "Shoud return transaction value when called inside transaction"
-    (let [rk1 :deref2|k1
-          rr1 (rr rk1 42)]
-      (is (= 42 @rr1))
-      (mds
-        (alter rr1 inc)
-        (is (= 43 @rr1) "Value within transaction has changed")
-        (is (= 42 (r/deref* conn rk1)) "Value on redis is still the old one before transaction commited"))
-      (is (= 43 @rr1) "Value on redis is the new value once transaction is done"))))
+    (let [rr1 (RedisRef. conn :deref1|k1 42 )]
+      (with-redefs [r/deref* (constantly "redis-val-here") ]
+        (is (= "redis-val-here" (.deref rr1))))))
+  (testing "Shoud do-get when called inside transaction"
+    (let [rr1 (RedisRef. conn :deref2|k1 42)]
+      (with-redefs [r/deref* (constantly "redis-val-here")
+                    tx/do-get (constantly "tval-here")]
+        (is (= "redis-val-here" (.deref rr1)))
+        (with-new-tx
+          (is (= "tval-here" (.deref rr1))))))))
 
 (deftest -set-test
   (testing "Can only be called in transaction"
-    (let [rr1 (RedisRef. conn :set|k1 42)]
-      (try-catch (ex/no-transaction) (. rr1 set 43))))
-  (testing "Should do-set"))
+    (let [rr1 (RedisRef. conn :set1|k1 42)]
+      (try-catch (ex/no-transaction) (.set rr1 43))))
+  (testing "Should do-set when called inside transaction"
+    (let [rr1 (RedisRef. conn :set2|k1 42)]
+      (with-redefs [tx/do-set (constantly "did-set")]
+        (with-new-tx
+          (is (= "did-set" (.set rr1 43))))))))
 
 (deftest -commute-test
   (testing "Can only be called in transaction"
-    (let [rr1 (RedisRef. conn :commute|k1 42)]
-      (try-catch (ex/no-transaction) (. rr1 commute + '(1 2 3)))))
-  (testing "Should do-commute"))
+    (let [rr1 (RedisRef. conn :commute1|k1 42)]
+      (try-catch (ex/no-transaction) (.commute rr1 + '(1 2 3)))))
+  (testing "Should do-commute when called inside transaction"
+    (let [rr1 (RedisRef. conn :commute2|k1 42)]
+      (with-redefs [tx/do-commute (constantly "did-commute")]
+        (with-new-tx
+          (is (= "did-commute" (.commute rr1 + '(1 2 3)))))))))
 
 (deftest -alter-test
   (testing "Can only be called in transaction"
-    (let [rr1 (RedisRef. conn :alter|k1 42)]
-      (try-catch (ex/no-transaction) (. rr1 alter + '(1 2 3)))))
-  (testing "Should do-set with f"))
+    (let [rr1 (RedisRef. conn :alter1|k1 42)]
+      (try-catch (ex/no-transaction) (.alter rr1 + '(1 2 3)))))
+  (testing "Should do-set with f and args when called inside transaction"
+    (let [rr1 (RedisRef. conn :alter2|k1 42)]
+      (with-redefs [tx/do-get (constantly 42)
+                    tx/do-set (fn [_ val] val)]
+        (with-new-tx
+          (is (= 48 (.alter rr1 + '(1 2 3)))))))))
 
 (deftest -touch-test
   (testing "Can only be called in transaction"
-    (let [rr1 (RedisRef. conn :touch|k1 42)]
-      (try-catch (ex/no-transaction) (. rr1 touch))))
-  (testing "Should do-ensure"))
+    (let [rr1 (RedisRef. conn :touch1|k1 42)]
+      (try-catch (ex/no-transaction) (.touch rr1))))
+  (testing "Should do-ensure when called inside transaction"
+    (let [rr1 (RedisRef. conn :touch2|k1 42)
+          ensure-result (atom nil)]
+      (with-redefs [tx/do-ensure (fn [_] (reset! ensure-result "did-ensure"))]
+        (with-new-tx
+          (.touch rr1)
+          (is (= "did-ensure" @ensure-result)))))))
