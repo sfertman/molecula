@@ -7,11 +7,6 @@
   (:gen-class
     :name RedisRef
     :extends clojure.lang.Ref
-    :implements [
-      clojure.lang.IFn
-      java.lang.Comparable ;;-- perhaps I can do without? unclear, perhaps will need to make a method for this
-      ; clojure.lang.IRef
-    ]
     :methods [
       [key [] clojure.lang.Keyword]
       [conn [] clojure.lang.PersistentArrayMap]]
@@ -62,28 +57,3 @@
   [this]
   (tx/throw-when-nil-t)
   (tx/do-ensure this))
-
-; (defn -trimHistory [this] (throw (NoSuchMethodException. "Not implemented")))
-; (defn -getHistoryCount [this] (throw (NoSuchMethodException. "Not implemented")))
-
-(comment
-  ;;; IFn stuff goes here -- don't actually need this if I'm extending clojure.lang.Ref
-  (defn -fn [this] (cast clojure.lang.IFn (.deref this)))
-  (defn -call [this] (.invoke this))
-  (defn -run [this] (.invoke this) nil)
-  (defn -invoke
-    [this]
-    (.invoke (.fn this)))
-  (defn -invoke-Object
-    [this arg1]
-    (.invoke (.fn this) arg1))
-  (defn -invoke-Object-Object
-    [this arg1 arg2]
-    (.invoke (.fn this) arg1 arg2))
-  (defn -invoke-Object-Object-Object
-    [this arg1 arg2 arg3]
-    (.invoke (.fn this) arg1 arg2 arg3))
-  (defn -applyTo
-    [this ^clojure.lang.ISeq arglist]
-    (.applyToHelper this arglist))
-)
