@@ -38,31 +38,22 @@
 
 (defn tget [& ks] (get-in *t* ks))
 
-(defn tput-refs
-  [t ref] (update t :refs assoc (.key ref) ref))
-(defn tput-oldvals
-  [t rk oldval] (update t :oldvals assoc rk oldval))
-(defn tput-tvals
-  [t rk tval] (update t :tvals assoc rk tval))
-(defn tput-sets
-  [t rk] (update t :sets conj rk))
-(defn tput-ensures
-  [t rk] (update t :ensures conj rk))
-(defn tput-commutes
-  [t rk cfn]
-  (if (seq (get-in t [:commutes rk]))
-    (update-in t [:commutes rk] conj cfn)
-    (update t :commutes assoc rk [cfn])))
-
-(def tput-fn {
-  :refs     tput-refs
-  :oldvals  tput-oldvals
-  :tvals    tput-tvals
-  :sets     tput-sets
-  :ensures  tput-ensures
-  :commutes tput-commutes})
-
-(defn tput! [op & args] (set! *t* (apply (tput-fn op) *t* args)))
+(defmacro tput-ref!
+  [ref] `(set! *t* (update *t* :refs assoc (.key ~ref) ~ref)))
+(defmacro tput-oldval!
+  [rk oldval] `(set! *t* (update *t* :oldvals assoc ~rk ~oldval)))
+(defmacro tput-tval!
+  [rk tval] `(set! *t* (update *t* :tvals assoc ~rk ~tval)))
+(defmacro tput-set!
+  [rk] `(set! *t* (update *t* :sets conj ~rk)))
+(defmacro tput-ensure!
+  [rk] `(set! *t* (update *t* :ensures conj ~rk)))
+(defmacro tput-commute!
+  [rk cfn]
+  `(set! *t*
+    (if (seq (get-in *t* [:commutes ~rk]))
+      (update-in *t* [:commutes ~rk] conj ~cfn)
+      (update *t* :commutes assoc ~rk [~cfn]))))
 
 (defn do-get
   [ref]
@@ -80,21 +71,21 @@
     (when (tcontains? :commutes rk)
       (throw (ex/set-after-commute)))
     (when-not (tcontains? :refs rk)
-      (tput! :refs ref))
+      (tput-ref! ref))
     (when-not (tcontains? :oldvals rk)
-      (tput! :oldvals rk (do-get ref)))
+      (tput-oldval! rk (do-get ref)))
     (when-not (tcontains? :sets rk)
-      (tput! :sets rk))
-    (tput! :tvals rk value)
+      (tput-set! rk))
+    (tput-tval! rk value)
     value))
 
 (defn do-ensure
   [ref]
   (let [rk (.key ref)]
     (when-not (tcontains? :oldvals rk)
-      (tput! :oldvals rk (do-get ref)))
+      (tput-oldval! rk (do-get ref)))
     (when-not (tcontains? :ensures rk)
-      (tput! :ensures rk))))
+      (tput-ensure! rk))))
 
 (defn do-commute
   [ref f args]
@@ -103,11 +94,11 @@
         rv (do-get ref)
         ret (cfn rv)]
     (when-not (tcontains? :refs rk)
-      (tput! :refs ref))
+      (tput-ref! ref))
     (when-not (tcontains? :oldvals rk)
-      (tput! :oldvals rk rv))
-    (tput! :tvals rk ret)
-    (tput! :commutes rk cfn)
+      (tput-oldval! rk rv))
+    (tput-tval! rk ret)
+    (tput-commute! rk cfn)
     ret))
 
 (defn commute-ref
@@ -162,8 +153,8 @@
           (do ;; else, assume all conflicts are commutes
             (doseq [rk result
                     rv (r/deref-multi (tconn) result)]
-              (tput! :oldvals rk rv) ;; refresh oldvals
-              (tput! :tvals rk (commute-ref rk))) ;; recalculate commutes only
+              (tput-oldval! rk rv) ;; refresh oldvals
+              (tput-tval! rk (commute-ref rk))) ;; recalculate commutes only
             (validate result)
             (recur (dec retries)))))))) ;; retry commit
 

@@ -22,20 +22,6 @@
   (testing "get conn in tx"
     (with-new-tx (is (= conn (sut/tconn))))))
 
-(deftest tput-refs-test
-  (let [rr1 (rr :tput-refs|k1 42)
-        tx (sut/->transaction conn)
-        result (sut/tput-refs tx rr1) ]
-    (is (= rr1 (get-in result [:refs :tput-refs|k1])))))
-
-(deftest tput-oldvals-test)
-(deftest tput-tvals-test)
-(deftest tput-sets-test)
-(deftest tput-ensures-test)
-(deftest tput-commutes-test)
-(deftest tput!-test)
-;; TODO: for the sake of completion write these tests
-
 (deftest do-get-test
   (testing "do-get with tx"
     (let [rr1 (rr :do-get1|k1 42)]
