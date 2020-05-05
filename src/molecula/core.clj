@@ -32,9 +32,11 @@
         (add-watch rr (key w) (val w)))
       rr))
   ([conn k] (RedisRef. conn k))
-  ([conn k val] (let [r (redis-ref conn k)] (setnx* conn k val) r))
+  ([conn k val] (let [rr (redis-ref conn k)] (setnx* conn k val) rr))
   ([conn k val & {:keys [meta validator]}]
-    (let [r (redis-ref conn k val)]
-      (when meta (.resetMeta r meta))
-      (when validator (.setValidator r validator))
-      r)))
+    (tx/validate* validator val)
+    ;; NOTE: must validate here, before a value is set on backend
+    (let [rr (redis-ref conn k val)]
+      (when meta (.resetMeta rr meta))
+      (when validator (.setValidator rr validator))
+      rr)))

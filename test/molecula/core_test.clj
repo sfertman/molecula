@@ -2,8 +2,9 @@
   (:require
     [molecula.transaction :as tx]
     [clojure.test :refer :all]
-    [molecula.common-test :as ct :refer [conn rr mds wcar* flushall]]
+    [molecula.common-test :refer :all]
     [molecula.core :as mol :refer [redis-ref]]
+    [molecula.error :as ex]
     [molecula.RedisRef]
     [molecula.redis :as r]
     [taoensso.carmine :as redis]))
@@ -11,7 +12,7 @@
 (flushall)
 
 (comment
- """
+ """ Must ensure tha all these invariants are being enforced (if applicable in my optimistic locking scheme)
   From: https://clojure.org/reference/refs
 
     All reads of Refs will see a consistent snapshot of the 'Ref world' as of the starting point of the transaction (its 'read point'). The transaction will see any changes it has made. This is called the in-transaction-value.
@@ -49,9 +50,19 @@
   (testing "Should return a RedisRef object and SET key/value on backend when given conn, k and val and key DOES NOT EXIST on backend")
   (testing "Should return a RedisRef object and NOT SET key/value on backend when given conn, k and val and key EXISTS on backend")
   (testing "Should return a RedisRef object with validator and/or meta when given")
-
-  )
-
+  (testing "Should validate initial value"
+    ;; https://clojuredocs.org/clojure.core/ref#example-542692cac026201cdc326b3a
+    (try-catch (ex/invalid-ref-state)
+      (let [rr1 (rr :validate1|k1 0 :validator pos?)]
+        (prn "THIS SHALL NOT PAAAASSS!!!" @rr1)))
+    (let [rr2 (rr :validate1|k2 1 :validator pos?)]
+      (is (= 1 @rr2))))
+  (testing "Should validate exiting value"
+    (let [rr1 (rr :validate2|k1 -1)]
+      (try-catch (ex/invalid-ref-state)
+        (let [rr2 (rr :validate2|k1 1 :validator pos?)]
+          (prn "THIS SHALL NOT PAAAASSS!!!" @rr2)))
+      (is (= -1 @rr1) "rr1 should be unchanged because we make new refs with setnx"))))
 
 ;; Methods
 
@@ -77,12 +88,42 @@
 (deftest ensure-test)
 
 ;; Integration
-(deftest integration-test)
+(deftest integration-test
 
+
+)
+
+(deftest odds-and-ends
+  ;; https://clojuredocs.org/clojure.core/ref#example-542692cac026201cdc326b3a
+  (comment
+  """
+
+  => (dosync (ref-set (ref 1 :validator pos?) 0))
+  IllegalStateException Invalid reference state  clojure.lang.ARef.validate (ARef.java:33)
+
+  => (dosync (ref-set (ref 1 :validator pos?) 2))
+  2
+
+  """
+  )
+
+  (testing "Should automatically deref when used as a function"
+    ;; https://clojuredocs.org/clojure.core/ref#example-5c9a131ae4b0ca44402ef6ca
+    (let [m (rr :fn|k1 {:a 1 :b 2})]
+      (is (= 1 (m :a)))
+      (is (= 2 (m :b)))))
+  (testing "Should be sorted by order of creation"
+    ;; https://clojuredocs.org/clojure.core/ref#example-5c9a131ae4b0ca44402ef6ca
+    (let [rr1 (rr :sort|k1 10)
+          rr2 (rr :sort|k2 12)
+          rr3 (rr :sort|k3 1)]
+      (is (= [10 12 1] (map deref (sort [rr1 rr2 rr3]))))
+      (is (= [10 12 1] (map deref (sort [rr2 rr1 rr3]))))
+      (is (= [10 12 1] (map deref (sort [rr3 rr1 rr2])))))))
 
 (deftest test-examples
 
-  ;; let's use https://www.braveclojure.com/zombie-metaphysics/ refs example and try to implement it using carmine before attmpting to abstract anything
+  ;; https://www.braveclojure.com/zombie-metaphysics/
 
   (def sock-varieties
     #{"ppp" "darned" "argyle" "wool" "horsehair" "mulleted"
@@ -168,18 +209,5 @@
   (prn "@counter" @counter)
   (prn "all done")
   ;; TODO: commute example works fine but not the same as stm
-  ;; have to finish writing tests for redis/cas-multi and tx/commit -- something is probably wrong there
-
-; (defn sleep-print-update
-;   [sleep-time thread-name update-fn]
-;   (fn [state]
-;     (Thread/sleep sleep-time)
-;     (println (str thread-name ": " state))
-;     (update-fn state)))
-; (def counter (ref 0))
-; (future (dosync (commute counter (sleep-print-update 1000 "Thread A" inc))))
-; (future (dosync (commute counter (sleep-print-update 1500 "Thread B" inc))))
-
-; (Thread/sleep 5000)
 
   )
