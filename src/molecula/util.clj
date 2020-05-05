@@ -21,8 +21,8 @@
 (defn with-timeout-fn
   [t-ms f]
   (let [fut (future (f))
-        ret (deref fut t-ms ::operation-timed-out)]
-    (when (= ret ::operation-timed-out)
+        ret (deref fut t-ms :operation-timed-out)]
+    (when (= ret :operation-timed-out)
       (future-cancel fut))
     ret))
 

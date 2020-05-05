@@ -1,10 +1,13 @@
 (ns molecula.transaction
   (:require
+    [molecula.error :as ex]
     [molecula.redis :as r]
-    [molecula.error :as ex])
+    [molecula.util :as u])
   (:import
     (clojure.lang IFn ISeq)))
 
+(def RETRY_LIMIT 10000)
+(def MCAS_TIMEOUT 1000)
 
 (def ^:dynamic *t* nil)
 
@@ -32,7 +35,7 @@
   (when (nil? *t*)
     (throw (ex/no-transaction))))
 
-(defn tconn [] (:conn *t*))
+(defmacro tconn [] (:conn *t*))
 
 (defn tcontains? [op rk] (contains? (*t* op) rk))
 
@@ -70,12 +73,10 @@
   (let [rk (.key ref)]
     (when (tcontains? :commutes rk)
       (throw (ex/set-after-commute)))
-    (when-not (tcontains? :refs rk)
-      (tput-ref! ref))
+    (tput-ref! ref)
     (when-not (tcontains? :oldvals rk)
       (tput-oldval! rk (do-get ref)))
-    (when-not (tcontains? :sets rk)
-      (tput-set! rk))
+    (tput-set! rk)
     (tput-tval! rk value)
     value))
 
@@ -84,8 +85,7 @@
   (let [rk (.key ref)]
     (when-not (tcontains? :oldvals rk)
       (tput-oldval! rk (do-get ref)))
-    (when-not (tcontains? :ensures rk)
-      (tput-ensure! rk))))
+    (tput-ensure! rk)))
 
 (defn do-commute
   [ref f args]
@@ -93,8 +93,7 @@
         cfn (->CFn f args)
         rv (do-get ref)
         ret (cfn rv)]
-    (when-not (tcontains? :refs rk)
-      (tput-ref! ref))
+    (tput-ref! ref)
     (when-not (tcontains? :oldvals rk)
       (tput-oldval! rk rv))
     (tput-tval! rk ret)
@@ -134,22 +133,20 @@
   - nil if everything went ok
   - an error \"object\" if anything went wrong"
   [retries]
-  ;; TODO: this needs to handle the case when there is nothing to commit
-  ;; and what exactly should it do when there's mothing to commit?
-  ;; should return nil without cas
-  ;; but, if there's an ensure then we need to ensure that oldval did not change
   (if (<= retries 0)
     {:error :no-more-retries
      :retries retries}
     (let [ensures (apply concat (map (fn [rk] [rk (tget :oldvals rk)]) (tget :ensures)))
           updates (apply concat (map (fn [rk] [rk (tget :oldvals rk) (tget :tvals rk)]) (updatables)))
-          result (r/cas-multi-or-report (tconn) ensures updates)]
+          result (u/with-timeout MCAS_TIMEOUT (r/mcas-or-report! (tconn) ensures updates))]
+          ;; TODO: handle :operation-timed-out result
+          ;; TODO: handle false result -- maybe crash?? this really should never happen
           ;; TODO: maybe find better name for this result
       (when-not (true? result)
         (if (seq (filter #(or (tcontains? :sets %)
                               (tcontains? :ensures %)) result))
           {:error :stale-oldvals
-            :retries retries}  ;; entire tx needs retry anything outside commute is stale
+           :retries retries}  ;; entire tx needs retry anything outside commute is stale
           (do ;; else, assume all conflicts are commutes
             (doseq [rk result
                     rv (r/deref-multi (tconn) result)]
@@ -166,8 +163,6 @@
       (.notifyWatches (tget :refs rk) (tget :oldvals rk) (tget :tvals rk)))))
 
 (defn dispatch-agents [] 42) ;; TODO: this at some point?
-
-(def RETRY_LIMIT 10000)
 
 (defn run ;; TODO
   [^clojure.lang.IFn f]

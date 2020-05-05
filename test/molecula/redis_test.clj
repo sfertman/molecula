@@ -58,33 +58,33 @@
       (is (= [rk1 rk2] (sut/conflicts conn [rk1 rk2 rk3] [99 98 rv3])))
       (is (= [rk1 rk2 rk3] (sut/conflicts conn [rk1 rk2 rk3] [99 98 97]))))))
 
-(deftest cas-multi-or-report-test-conflicts
+(deftest mcas-or-report!-test-conflicts
   (testing "Should return true when update and no conflicts"
     (let [rks [:mcas1|k1 :mcas1|k2 :mcas1|k3]
           oldvals [42 43 44]
           newvals [12 13 14]]
       (is (= "OK" (sut/set-multi! conn rks oldvals)))
       (let [updates (interleave rks oldvals newvals)]
-        (is (true? (sut/cas-multi-or-report conn [] updates))))))
+        (is (true? (sut/mcas-or-report! conn [] updates))))))
   (testing "Sould return conflicts when updates & stale updates"
     (let [rks [:mcas2|k1 :mcas2|k2 :mcas2|k3]
           oldvals [42 43 44]
           newvals [52 53 54]]
       (is (= "OK" (sut/set-multi! conn rks oldvals)))
       (let [updates (interleave rks [42 33 44] newvals)]
-        (is (= [(second rks)] (sut/cas-multi-or-report conn [] updates))))))
+        (is (= [(second rks)] (sut/mcas-or-report! conn [] updates))))))
   (testing "Should return true when ensures and no conflicts"
     (let [rks [:mcas3|k1 :mcas3|k2 :mcas3|k3]
           oldvals [42 43 44]]
       (is (= "OK" (sut/set-multi! conn rks oldvals)))
       (let [ensures (interleave rks oldvals)]
-        (is (true? (sut/cas-multi-or-report conn ensures))))))
+        (is (true? (sut/mcas-or-report! conn ensures []))))))
   (testing "Should return conflicts when ensures & stale ensures"
     (let [rks [:mcas4|k1 :mcas4|k2 :mcas4|k3]
           oldvals [42 43 44]]
       (is (= "OK" (sut/set-multi! conn rks oldvals)))
       (let [ensures (interleave rks [42 33 44])]
-        (is (= [(second rks)] (sut/cas-multi-or-report conn ensures []))))))
+        (is (= [(second rks)] (sut/mcas-or-report! conn ensures []))))))
   #_(testing "Should return false when updates only and multi/exec fails not due to conflics"
     (comment "not sure how to make this happen"))
   (testing "Should return true when ensures, updates and no conflics"
@@ -97,7 +97,7 @@
       (is (= "OK" (sut/set-multi! conn rks-upd oval-upd)))
       (let [ensures (interleave rks-ens oval-ens)
             updates (interleave rks-upd oval-upd nval-upd)]
-        (is (true? (sut/cas-multi-or-report conn ensures updates))))))
+        (is (true? (sut/mcas-or-report! conn ensures updates))))))
   (testing "Should return conflicts when ensures, updates & stale updates")
   (testing "Should return conflicts when ensures, updates & stale ensures")
   (testing "Should return conflicts when ensures, updates & stale updates, ensures")

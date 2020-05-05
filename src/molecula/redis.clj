@@ -35,8 +35,7 @@
   [conn & forms]
   `(r/wcar ~conn (r/multi) ~@forms (r/exec)))
 
-
-(defn cas-multi-or-report
+(defn mcas-or-report*
   "this is basically our cas-multi but with a twist
   it reports which keys failed compare to oldval
   Returns:
@@ -53,22 +52,24 @@
      :kte3 oldval3] ;; keys to ensure
     [:ktu1 oldval1 newval1
      :ktu2 oldval2 newval2
-     :ktu3 oldval3 newval3] ;; keys to update
-    :timeout 10) ;; timeout in seconds (not implemented yet)
+     :ktu3 oldval3 newval3]) ;; keys to update
   ```
   TODO: figure out a way to fail a transaction that takes too long
-  TODO(ocd): optimize let difinitions
+  TODO(ocd): optimize let definitions
   "
-  ([conn ensures]
-    (let [eks (take-nth 2 ensures)
-          eov (take-nth 2 (drop 1 ensures))]
-      (if-let [cf (seq (conflicts conn eks eov))]
-        cf
-        true)));; TODO: actually, tx/commit should handle this case; mcas is for comparing and setting things
-        ;; mcas whould have the followin signature:
-        ;; (defn mcas
-        ;;   ([conn updates] 42)
-        ;;   ([conn ensures updates] 43))
+  ([conn updates]
+    (let [ks (take-nth 3 updates)
+          oldvals (take-nth 3 (drop 1 updates))
+          newvals (take-nth 3 (drop 2 updates))]
+      (r/wcar conn (apply r/watch ks))
+      (if-let [cf (seq (conflicts conn ks oldvals))]
+        (do (r/wcar conn (r/unwatch))
+            cf)
+        (if (nil? (multi-exec conn (set-multi! conn ks newvals)))
+          (if-let [cf (seq (conflicts conn ks oldvals))]
+            cf
+            false)
+          true))))
   ([conn ensures updates]
     (let [eks (take-nth 2 ensures) ;; ensure keys
           eov (take-nth 2 (drop 1 ensures)) ;; oldvals to ensure
@@ -87,10 +88,17 @@
             false) ;; something made multi-exec fail and it wasn't conflicts
           true)))))
 
-
-(defn mcas-or-report
-  [conn ensures updates & {:keys [timeout-ms]}]
-  (u/with-timeout timeout-ms
-    ;; I can also do this in tx with rks as inputs and transaform to inputs as above
-    (cas-multi-or-report conn ensures updates)))
-    ;;^^ TODO: gotta catch that ::operation-timed-out flag and throw whatever is expected here
+(defn mcas-or-report!
+  "Returns true, false, array of conflicted keys or :operation-timed-out"
+  [conn ensures updates]
+  (if (seq ensures)
+    (if (seq updates)
+      (mcas-or-report* conn ensures updates)
+      (let [eks (take-nth 2 ensures)
+            eov (take-nth 2 (drop 1 ensures))]
+        (if-let [cf (seq (conflicts conn eks eov))]
+          cf
+          true)))
+    (if (seq updates)
+      (mcas-or-report* conn updates)
+      true)))

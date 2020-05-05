@@ -40,3 +40,9 @@
       (when meta (.resetMeta rr meta))
       (when validator (.setValidator rr validator))
       rr)))
+
+;; TODO: configurables?
+;; - mcas timeout
+;; - tx retries
+;; actually, not sure. those are more of a transaction properties and not refs
+;; maybe these should be configurable with dosync

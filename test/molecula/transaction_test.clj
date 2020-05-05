@@ -1,26 +1,12 @@
 (ns molecula.transaction-test
   (:require
     [clojure.test :refer :all]
-    [molecula.common-test :refer [conn rr wcar*]]
+    [molecula.common-test :refer :all]
     [molecula.core :refer [redis-ref]]
     [molecula.error :as ex]
     [molecula.redis :as r]
     [molecula.transaction :as sut]
     [taoensso.carmine :as redis]))
-
-(defmacro with-tx [t & body]
-  `(binding [sut/*t* (assoc ~t :conn conn)] ~@body))
-
-(defmacro with-new-tx [& body]
-  `(binding [sut/*t* (sut/->transaction conn)] ~@body))
-
-(deftest tconn-test
-  (testing "throw when no tx running"
-    (try (sut/tconn)
-      (catch IllegalStateException e
-        (is (= (.getMessage (ex/no-transaction)) (.getMessage e))))))
-  (testing "get conn in tx"
-    (with-new-tx (is (= conn (sut/tconn))))))
 
 (deftest do-get-test
   (testing "do-get with tx"
@@ -106,13 +92,13 @@
           rk2 :commit1|k2 rr2 (rr rk2)
           rk3 :commit1|k3 rr3 (rr rk3)
           refs (zipmap [rk1 rk2 rk3] [rr1 rr2 rr3])]
-      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+      (with-redefs [r/mcas-or-report! (fn [& _] [rk1])]
         (with-tx {:conn conn :sets #{rk1 rk2 rk3} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
-      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+      (with-redefs [r/mcas-or-report! (fn [& _] [rk1])]
         (with-tx {:conn conn :sets #{rk1 rk2 rk3} :commutes {rk1 [:stuff]} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
-      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+      (with-redefs [r/mcas-or-report! (fn [& _] [rk1])]
         (with-tx {:conn conn :sets #{rk1 rk2 rk3} :ensures #{rk1} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))))
   (testing "Should return stale-old-vals when ensures are conflicting"
@@ -120,13 +106,13 @@
           rk2 :commit1|k2 rr2 (rr rk2)
           rk3 :commit1|k3 rr3 (rr rk3)
           refs (zipmap [rk1 rk2 rk3] [rr1 rr2 rr3])]
-      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+      (with-redefs [r/mcas-or-report! (fn [& _] [rk1])]
         (with-tx {:conn conn :ensures #{rk1 rk2 rk3}  :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
-      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+      (with-redefs [r/mcas-or-report! (fn [& _] [rk1])]
         (with-tx {:conn conn :ensures #{rk1 rk2 rk3} :commutes {rk1 [:stuff]} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))
-      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+      (with-redefs [r/mcas-or-report! (fn [& _] [rk1])]
         (with-tx {:conn conn :ensures #{rk1 rk2 rk3} :sets #{rk1} :refs refs}
           (is (= {:error :stale-oldvals :retries 100} (sut/commit 100)))))))
   (testing "Should retry conflicting commutes"
@@ -134,13 +120,13 @@
           rk2 :commit3|k2 rr2 (rr rk2)
           rk3 :commit3|k3 rr3 (rr rk3)
           refs (zipmap [rk1 rk2 rk3] [rr1 rr2 rr3])]
-      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+      (with-redefs [r/mcas-or-report! (fn [& _] [rk1])]
         (with-tx {:conn conn :commutes {rk1 [:stuff]} :refs refs}
           (is (= {:error :no-more-retries :retries 0} (sut/commit 1)))))
-      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+      (with-redefs [r/mcas-or-report! (fn [& _] [rk1])]
         (with-tx {:conn conn :commutes {rk1 [:stuff]} :ensures #{rk2 rk3} :refs refs}
           (is (= {:error :no-more-retries :retries 0} (sut/commit 1)))))
-      (with-redefs [r/cas-multi-or-report (fn [& _] [rk1])]
+      (with-redefs [r/mcas-or-report! (fn [& _] [rk1])]
         (with-tx {:conn conn :commutes {rk1 [:stuff]} :ensures #{rk2} :sets #{rk2 rk3} :refs refs}
           (is (= {:error :no-more-retries :retries 0} (sut/commit 1)))))))
   (testing "Should validate retried commutes") ;; TODO
